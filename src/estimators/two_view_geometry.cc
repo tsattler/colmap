@@ -1,20 +1,37 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "estimators/two_view_geometry.h"
+
+#include <unordered_set>
 
 #include "base/camera.h"
 #include "base/essential_matrix.h"
@@ -48,27 +65,50 @@ FeatureMatches ExtractInlierMatches(const FeatureMatches& matches,
 }
 
 FeatureMatches ExtractOutlierMatches(const FeatureMatches& matches,
-                                     const size_t num_inliers,
-                                     const std::vector<char>& inlier_mask) {
-  FeatureMatches outlier_matches(matches.size() - num_inliers);
-  size_t j = 0;
-  for (size_t i = 0; i < matches.size(); ++i) {
-    if (!inlier_mask[i]) {
-      outlier_matches[j] = matches[i];
-      j += 1;
+                                     const FeatureMatches& inlier_matches) {
+  CHECK_GE(matches.size(), inlier_matches.size());
+
+  std::unordered_set<std::pair<point2D_t, point2D_t>> inlier_matches_set;
+  inlier_matches_set.reserve(inlier_matches.size());
+  for (const auto& match : inlier_matches) {
+    inlier_matches_set.emplace(match.point2D_idx1, match.point2D_idx2);
+  }
+
+  FeatureMatches outlier_matches;
+  outlier_matches.reserve(matches.size() - inlier_matches.size());
+
+  for (const auto& match : matches) {
+    if (inlier_matches_set.count(
+            std::make_pair(match.point2D_idx1, match.point2D_idx2)) == 0) {
+      outlier_matches.push_back(match);
     }
   }
+
   return outlier_matches;
 }
 
 inline bool IsImagePointInBoundingBox(const Eigen::Vector2d& point,
                                       const double minx, const double maxx,
                                       const double miny, const double maxy) {
-  return point(0) >= minx && point(0) <= maxx && point(1) >= miny &&
-         point(1) <= maxy;
+  return point.x() >= minx && point.x() <= maxx && point.y() >= miny &&
+         point.y() <= maxy;
 }
 
 }  // namespace
+
+void TwoViewGeometry::Invert() {
+  F.transposeInPlace();
+  E.transposeInPlace();
+  H = H.inverse().eval();
+
+  const Eigen::Vector4d orig_qvec = qvec;
+  const Eigen::Vector3d orig_tvec = tvec;
+  InvertPose(orig_qvec, orig_tvec, &qvec, &tvec);
+
+  for (auto& match : inlier_matches) {
+    std::swap(match.point2D_idx1, match.point2D_idx2);
+  }
+}
 
 void TwoViewGeometry::Estimate(const Camera& camera1,
                                const std::vector<Eigen::Vector2d>& points1,
@@ -105,9 +145,8 @@ void TwoViewGeometry::EstimateMultiple(
       two_view_geometries.push_back(two_view_geometry);
     }
 
-    remaining_matches = ExtractOutlierMatches(
-        remaining_matches, two_view_geometry.inlier_matches.size(),
-        two_view_geometry.inlier_mask);
+    remaining_matches = ExtractOutlierMatches(remaining_matches,
+                                              two_view_geometry.inlier_matches);
   }
 
   if (two_view_geometries.empty()) {
@@ -125,24 +164,25 @@ void TwoViewGeometry::EstimateMultiple(
   }
 }
 
-void TwoViewGeometry::EstimateWithRelativePose(
+bool TwoViewGeometry::EstimateRelativePose(
     const Camera& camera1, const std::vector<Eigen::Vector2d>& points1,
-    const Camera& camera2, const std::vector<Eigen::Vector2d>& points2,
-    const FeatureMatches& matches, const Options& options) {
-  // Warning: Do not change this call to another `Estimate*` method, since E is
-  // need further down in this method.
-  EstimateCalibrated(camera1, points1, camera2, points2, matches, options);
+    const Camera& camera2, const std::vector<Eigen::Vector2d>& points2) {
+  // We need a valid epopolar geometry to estimate the relative pose.
+  if (config != CALIBRATED && config != UNCALIBRATED && config != PLANAR &&
+      config != PANORAMIC && config != PLANAR_OR_PANORAMIC) {
+    return false;
+  }
 
   // Extract normalized inlier points.
-  std::vector<Eigen::Vector2d> inlier_points1_N;
-  inlier_points1_N.reserve(inlier_matches.size());
-  std::vector<Eigen::Vector2d> inlier_points2_N;
-  inlier_points2_N.reserve(inlier_matches.size());
+  std::vector<Eigen::Vector2d> inlier_points1_normalized;
+  inlier_points1_normalized.reserve(inlier_matches.size());
+  std::vector<Eigen::Vector2d> inlier_points2_normalized;
+  inlier_points2_normalized.reserve(inlier_matches.size());
   for (const auto& match : inlier_matches) {
     const point2D_t idx1 = match.point2D_idx1;
     const point2D_t idx2 = match.point2D_idx2;
-    inlier_points1_N.push_back(camera1.ImageToWorld(points1[idx1]));
-    inlier_points2_N.push_back(camera2.ImageToWorld(points2[idx2]));
+    inlier_points1_normalized.push_back(camera1.ImageToWorld(points1[idx1]));
+    inlier_points2_normalized.push_back(camera2.ImageToWorld(points2[idx2]));
   }
 
   Eigen::Matrix3d R;
@@ -153,26 +193,26 @@ void TwoViewGeometry::EstimateWithRelativePose(
     // configurations. In the uncalibrated case, this most likely leads to a
     // ill-defined reconstruction, but sometimes it succeeds anyways after e.g.
     // subsequent bundle-adjustment etc.
-    PoseFromEssentialMatrix(E, inlier_points1_N, inlier_points2_N, &R, &tvec,
-                            &points3D);
-  } else {
+    PoseFromEssentialMatrix(E, inlier_points1_normalized,
+                            inlier_points2_normalized, &R, &tvec, &points3D);
+  } else if (config == PLANAR || config == PANORAMIC ||
+             config == PLANAR_OR_PANORAMIC) {
     Eigen::Vector3d n;
-    PoseFromHomographyMatrix(H, camera1.CalibrationMatrix(),
-                             camera2.CalibrationMatrix(), inlier_points1_N,
-                             inlier_points2_N, &R, &tvec, &n, &points3D);
+    PoseFromHomographyMatrix(
+        H, camera1.CalibrationMatrix(), camera2.CalibrationMatrix(),
+        inlier_points1_normalized, inlier_points2_normalized, &R, &tvec, &n,
+        &points3D);
+  } else {
+    return false;
   }
 
   qvec = RotationMatrixToQuaternion(R);
 
-  // Determine triangulation angle.
-  const Eigen::Matrix3x4d proj_matrix1 = Eigen::Matrix3x4d::Identity();
-  const Eigen::Matrix3x4d proj_matrix2 = ComposeProjectionMatrix(R, tvec);
-
   if (points3D.empty()) {
     tri_angle = 0;
   } else {
-    tri_angle = Median(
-        CalculateTriangulationAngles(proj_matrix1, proj_matrix2, points3D));
+    tri_angle = Median(CalculateTriangulationAngles(
+        Eigen::Vector3d::Zero(), -R.transpose() * tvec, points3D));
   }
 
   if (config == PLANAR_OR_PANORAMIC) {
@@ -183,6 +223,8 @@ void TwoViewGeometry::EstimateWithRelativePose(
       config = PLANAR;
     }
   }
+
+  return true;
 }
 
 void TwoViewGeometry::EstimateCalibrated(
@@ -199,15 +241,15 @@ void TwoViewGeometry::EstimateCalibrated(
   // Extract corresponding points.
   std::vector<Eigen::Vector2d> matched_points1(matches.size());
   std::vector<Eigen::Vector2d> matched_points2(matches.size());
-  std::vector<Eigen::Vector2d> matched_points1_N(matches.size());
-  std::vector<Eigen::Vector2d> matched_points2_N(matches.size());
+  std::vector<Eigen::Vector2d> matched_points1_normalized(matches.size());
+  std::vector<Eigen::Vector2d> matched_points2_normalized(matches.size());
   for (size_t i = 0; i < matches.size(); ++i) {
     const point2D_t idx1 = matches[i].point2D_idx1;
     const point2D_t idx2 = matches[i].point2D_idx2;
     matched_points1[i] = points1[idx1];
     matched_points2[i] = points2[idx2];
-    matched_points1_N[i] = camera1.ImageToWorld(points1[idx1]);
-    matched_points2_N[i] = camera2.ImageToWorld(points2[idx2]);
+    matched_points1_normalized[i] = camera1.ImageToWorld(points1[idx1]);
+    matched_points2_normalized[i] = camera2.ImageToWorld(points2[idx2]);
   }
 
   // Estimate epipolar models.
@@ -220,16 +262,15 @@ void TwoViewGeometry::EstimateCalibrated(
 
   LORANSAC<EssentialMatrixFivePointEstimator, EssentialMatrixFivePointEstimator>
       E_ransac(E_ransac_options);
-  const auto E_report = E_ransac.Estimate(matched_points1_N, matched_points2_N);
+  const auto E_report =
+      E_ransac.Estimate(matched_points1_normalized, matched_points2_normalized);
   E = E_report.model;
-  E_num_inliers = E_report.support.num_inliers;
 
   LORANSAC<FundamentalMatrixSevenPointEstimator,
            FundamentalMatrixEightPointEstimator>
       F_ransac(options.ransac_options);
   const auto F_report = F_ransac.Estimate(matched_points1, matched_points2);
   F = F_report.model;
-  F_num_inliers = F_report.support.num_inliers;
 
   // Estimate planar or panoramic model.
 
@@ -237,12 +278,11 @@ void TwoViewGeometry::EstimateCalibrated(
       options.ransac_options);
   const auto H_report = H_ransac.Estimate(matched_points1, matched_points2);
   H = H_report.model;
-  H_num_inliers = H_report.support.num_inliers;
 
   if ((!E_report.success && !F_report.success && !H_report.success) ||
-      (E_num_inliers < options.min_num_inliers &&
-       F_num_inliers < options.min_num_inliers &&
-       H_num_inliers < options.min_num_inliers)) {
+      (E_report.support.num_inliers < options.min_num_inliers &&
+       F_report.support.num_inliers < options.min_num_inliers &&
+       H_report.support.num_inliers < options.min_num_inliers)) {
     config = ConfigurationType::DEGENERATE;
     return;
   }
@@ -250,54 +290,59 @@ void TwoViewGeometry::EstimateCalibrated(
   // Determine inlier ratios of different models.
 
   const double E_F_inlier_ratio =
-      static_cast<double>(E_num_inliers) / F_num_inliers;
+      static_cast<double>(E_report.support.num_inliers) /
+      F_report.support.num_inliers;
   const double H_F_inlier_ratio =
-      static_cast<double>(H_num_inliers) / F_num_inliers;
+      static_cast<double>(H_report.support.num_inliers) /
+      F_report.support.num_inliers;
   const double H_E_inlier_ratio =
-      static_cast<double>(H_num_inliers) / E_num_inliers;
+      static_cast<double>(H_report.support.num_inliers) /
+      E_report.support.num_inliers;
 
   const std::vector<char>* best_inlier_mask = nullptr;
   size_t num_inliers = 0;
 
   if (E_report.success && E_F_inlier_ratio > options.min_E_F_inlier_ratio &&
-      E_num_inliers >= options.min_num_inliers) {
+      E_report.support.num_inliers >= options.min_num_inliers) {
     // Calibrated configuration.
 
     // Always use the model with maximum matches.
-    if (E_num_inliers >= F_num_inliers) {
-      num_inliers = E_num_inliers;
+    if (E_report.support.num_inliers >= F_report.support.num_inliers) {
+      num_inliers = E_report.support.num_inliers;
       best_inlier_mask = &E_report.inlier_mask;
     } else {
-      num_inliers = F_num_inliers;
+      num_inliers = F_report.support.num_inliers;
       best_inlier_mask = &F_report.inlier_mask;
     }
 
     if (H_E_inlier_ratio > options.max_H_inlier_ratio) {
       config = PLANAR_OR_PANORAMIC;
-      if (H_num_inliers > num_inliers) {
-        num_inliers = H_num_inliers;
+      if (H_report.support.num_inliers > num_inliers) {
+        num_inliers = H_report.support.num_inliers;
         best_inlier_mask = &H_report.inlier_mask;
       }
     } else {
       config = ConfigurationType::CALIBRATED;
     }
-  } else if (F_report.success && F_num_inliers >= options.min_num_inliers) {
+  } else if (F_report.success &&
+             F_report.support.num_inliers >= options.min_num_inliers) {
     // Uncalibrated configuration.
 
-    num_inliers = F_num_inliers;
+    num_inliers = F_report.support.num_inliers;
     best_inlier_mask = &F_report.inlier_mask;
 
     if (H_F_inlier_ratio > options.max_H_inlier_ratio) {
       config = ConfigurationType::PLANAR_OR_PANORAMIC;
-      if (H_num_inliers > num_inliers) {
-        num_inliers = H_num_inliers;
+      if (H_report.support.num_inliers > num_inliers) {
+        num_inliers = H_report.support.num_inliers;
         best_inlier_mask = &H_report.inlier_mask;
       }
     } else {
       config = ConfigurationType::UNCALIBRATED;
     }
-  } else if (H_report.success && H_num_inliers >= options.min_num_inliers) {
-    num_inliers = H_num_inliers;
+  } else if (H_report.success &&
+             H_report.support.num_inliers >= options.min_num_inliers) {
+    num_inliers = H_report.support.num_inliers;
     best_inlier_mask = &H_report.inlier_mask;
     config = ConfigurationType::PLANAR_OR_PANORAMIC;
   } else {
@@ -308,7 +353,6 @@ void TwoViewGeometry::EstimateCalibrated(
   if (best_inlier_mask != nullptr) {
     inlier_matches =
         ExtractInlierMatches(matches, num_inliers, *best_inlier_mask);
-    inlier_mask = *best_inlier_mask;
 
     if (options.detect_watermark &&
         DetectWatermark(camera1, matched_points1, camera2, matched_points2,
@@ -344,7 +388,6 @@ void TwoViewGeometry::EstimateUncalibrated(
       F_ransac(options.ransac_options);
   const auto F_report = F_ransac.Estimate(matched_points1, matched_points2);
   F = F_report.model;
-  F_num_inliers = F_report.support.num_inliers;
 
   // Estimate planar or panoramic model.
 
@@ -352,11 +395,10 @@ void TwoViewGeometry::EstimateUncalibrated(
       options.ransac_options);
   const auto H_report = H_ransac.Estimate(matched_points1, matched_points2);
   H = H_report.model;
-  H_num_inliers = H_report.support.num_inliers;
 
   if ((!F_report.success && !H_report.success) ||
-      (F_num_inliers < options.min_num_inliers &&
-       H_num_inliers < options.min_num_inliers)) {
+      (F_report.support.num_inliers < options.min_num_inliers &&
+       H_report.support.num_inliers < options.min_num_inliers)) {
     config = ConfigurationType::DEGENERATE;
     return;
   }
@@ -364,7 +406,8 @@ void TwoViewGeometry::EstimateUncalibrated(
   // Determine inlier ratios of different models.
 
   const double H_F_inlier_ratio =
-      static_cast<double>(H_num_inliers) / F_num_inliers;
+      static_cast<double>(H_report.support.num_inliers) /
+      F_report.support.num_inliers;
 
   if (H_F_inlier_ratio > options.max_H_inlier_ratio) {
     config = ConfigurationType::PLANAR_OR_PANORAMIC;
@@ -372,13 +415,13 @@ void TwoViewGeometry::EstimateUncalibrated(
     config = ConfigurationType::UNCALIBRATED;
   }
 
-  inlier_matches =
-      ExtractInlierMatches(matches, F_num_inliers, F_report.inlier_mask);
-  inlier_mask = F_report.inlier_mask;
+  inlier_matches = ExtractInlierMatches(matches, F_report.support.num_inliers,
+                                        F_report.inlier_mask);
 
   if (options.detect_watermark &&
       DetectWatermark(camera1, matched_points1, camera2, matched_points2,
-                      F_num_inliers, F_report.inlier_mask, options)) {
+                      F_report.support.num_inliers, F_report.inlier_mask,
+                      options)) {
     config = ConfigurationType::WATERMARK;
   }
 }

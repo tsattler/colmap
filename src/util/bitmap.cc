@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "util/bitmap.h"
 
@@ -22,7 +37,7 @@
 #include <boost/regex.hpp>
 
 #include "base/camera_database.h"
-#include "ext/VLFeat/imopv.h"
+#include "VLFeat/imopv.h"
 #include "util/logging.h"
 #include "util/math.h"
 #include "util/misc.h"
@@ -33,10 +48,36 @@ Bitmap::Bitmap()
     : data_(nullptr, &FreeImage_Unload), width_(0), height_(0), channels_(0) {}
 
 Bitmap::Bitmap(const Bitmap& other) : Bitmap() {
-  SetPtr(FreeImage_Clone(data_.get()));
+  if (other.data_) {
+    SetPtr(FreeImage_Clone(other.data_.get()));
+  }
+}
+
+Bitmap::Bitmap(Bitmap&& other) : Bitmap() {
+  data_ = std::move(other.data_);
+  width_ = other.width_;
+  height_ = other.height_;
+  channels_ = other.channels_;
 }
 
 Bitmap::Bitmap(FIBITMAP* data) : Bitmap() { SetPtr(data); }
+
+Bitmap& Bitmap::operator=(const Bitmap& other) {
+  if (other.data_) {
+    SetPtr(FreeImage_Clone(other.data_.get()));
+  }
+  return *this;
+}
+
+Bitmap& Bitmap::operator=(Bitmap&& other) {
+  if (this != &other) {
+    data_ = std::move(other.data_);
+    width_ = other.width_;
+    height_ = other.height_;
+    channels_ = other.channels_;
+  }
+  return *this;
+}
 
 bool Bitmap::Allocate(const int width, const int height, const bool as_rgb) {
   FIBITMAP* data = nullptr;
@@ -55,11 +96,26 @@ bool Bitmap::Allocate(const int width, const int height, const bool as_rgb) {
   return data != nullptr;
 }
 
+void Bitmap::Deallocate() {
+  data_.reset();
+  width_ = 0;
+  height_ = 0;
+  channels_ = 0;
+}
+
+size_t Bitmap::NumBytes() const {
+  if (data_) {
+    return ScanWidth() * height_;
+  } else {
+    return 0;
+  }
+}
+
 std::vector<uint8_t> Bitmap::ConvertToRawBits() const {
   const unsigned int scan_width = ScanWidth();
   const unsigned int bpp = BitsPerPixel();
   const bool kTopDown = true;
-  std::vector<uint8_t> raw_bits(bpp * scan_width * height_, 0);
+  std::vector<uint8_t> raw_bits(scan_width * height_, 0);
   FreeImage_ConvertToRawBits(raw_bits.data(), data_.get(), scan_width, bpp,
                              FI_RGBA_RED_MASK, FI_RGBA_GREEN_MASK,
                              FI_RGBA_BLUE_MASK, kTopDown);
@@ -225,7 +281,7 @@ bool Bitmap::InterpolateBilinear(const double x, const double y,
   return false;
 }
 
-bool Bitmap::ExifFocalLength(double* focal_length) {
+bool Bitmap::ExifFocalLength(double* focal_length) const {
   const double max_size = std::max(width_, height_);
 
   //////////////////////////////////////////////////////////////////////////////
@@ -238,7 +294,7 @@ bool Bitmap::ExifFocalLength(double* focal_length) {
     const boost::regex regex(".*?([0-9.]+).*?mm.*?");
     boost::cmatch result;
     if (boost::regex_search(focal_length_35mm_str.c_str(), result, regex)) {
-      const double focal_length_35 = boost::lexical_cast<double>(result[1]);
+      const double focal_length_35 = std::stold(result[1]);
       if (focal_length_35 > 0) {
         *focal_length = focal_length_35 / 35.0 * max_size;
         return true;
@@ -255,7 +311,7 @@ bool Bitmap::ExifFocalLength(double* focal_length) {
     boost::regex regex(".*?([0-9.]+).*?mm");
     boost::cmatch result;
     if (boost::regex_search(focal_length_str.c_str(), result, regex)) {
-      const double focal_length_mm = boost::lexical_cast<double>(result[1]);
+      const double focal_length_mm = std::stold(result[1]);
 
       // Lookup sensor width in database.
       std::string make_str;
@@ -280,11 +336,10 @@ bool Bitmap::ExifFocalLength(double* focal_length) {
                       &res_unit_str)) {
         regex = boost::regex(".*?([0-9.]+).*?");
         if (boost::regex_search(pixel_x_dim_str.c_str(), result, regex)) {
-          const double pixel_x_dim = boost::lexical_cast<double>(result[1]);
+          const double pixel_x_dim = std::stold(result[1]);
           regex = boost::regex(".*?([0-9.]+).*?/.*?([0-9.]+).*?");
           if (boost::regex_search(x_res_str.c_str(), result, regex)) {
-            const double x_res = boost::lexical_cast<double>(result[2]) /
-                                 boost::lexical_cast<double>(result[1]);
+            const double x_res = std::stold(result[2]) / std::stold(result[1]);
             // Use PixelXDimension instead of actual width of image, since
             // the image might have been resized, but the EXIF data preserved.
             const double ccd_width = x_res * pixel_x_dim;
@@ -306,15 +361,15 @@ bool Bitmap::ExifFocalLength(double* focal_length) {
   return false;
 }
 
-bool Bitmap::ExifLatitude(double* latitude) {
+bool Bitmap::ExifLatitude(double* latitude) const {
   std::string str;
   if (ReadExifTag(FIMD_EXIF_GPS, "GPSLatitude", &str)) {
     const boost::regex regex(".*?([0-9.]+):([0-9.]+):([0-9.]+).*?");
     boost::cmatch result;
     if (boost::regex_search(str.c_str(), result, regex)) {
-      const double hours = boost::lexical_cast<double>(result[1]);
-      const double minutes = boost::lexical_cast<double>(result[2]);
-      const double seconds = boost::lexical_cast<double>(result[3]);
+      const double hours = std::stold(result[1]);
+      const double minutes = std::stold(result[2]);
+      const double seconds = std::stold(result[3]);
       *latitude = hours + minutes / 60.0 + seconds / 3600.0;
       return true;
     }
@@ -322,15 +377,15 @@ bool Bitmap::ExifLatitude(double* latitude) {
   return false;
 }
 
-bool Bitmap::ExifLongitude(double* longitude) {
+bool Bitmap::ExifLongitude(double* longitude) const {
   std::string str;
   if (ReadExifTag(FIMD_EXIF_GPS, "GPSLongitude", &str)) {
     const boost::regex regex(".*?([0-9.]+):([0-9.]+):([0-9.]+).*?");
     boost::cmatch result;
     if (boost::regex_search(str.c_str(), result, regex)) {
-      const double hours = boost::lexical_cast<double>(result[1]);
-      const double minutes = boost::lexical_cast<double>(result[2]);
-      const double seconds = boost::lexical_cast<double>(result[3]);
+      const double hours = std::stold(result[1]);
+      const double minutes = std::stold(result[2]);
+      const double seconds = std::stold(result[3]);
       *longitude = hours + minutes / 60.0 + seconds / 3600.0;
       return true;
     }
@@ -338,14 +393,13 @@ bool Bitmap::ExifLongitude(double* longitude) {
   return false;
 }
 
-bool Bitmap::ExifAltitude(double* altitude) {
+bool Bitmap::ExifAltitude(double* altitude) const {
   std::string str;
   if (ReadExifTag(FIMD_EXIF_GPS, "GPSAltitude", &str)) {
     const boost::regex regex(".*?([0-9.]+).*?/.*?([0-9.]+).*?");
     boost::cmatch result;
     if (boost::regex_search(str.c_str(), result, regex)) {
-      *altitude = boost::lexical_cast<double>(result[1]) /
-                  boost::lexical_cast<double>(result[2]);
+      *altitude = std::stold(result[1]) / std::stold(result[2]);
       return true;
     }
   }
@@ -353,7 +407,7 @@ bool Bitmap::ExifAltitude(double* altitude) {
 }
 
 bool Bitmap::Read(const std::string& path, const bool as_rgb) {
-  if (!boost::filesystem::exists(path)) {
+  if (!ExistsFile(path)) {
     return false;
   }
 
@@ -364,21 +418,23 @@ bool Bitmap::Read(const std::string& path, const bool as_rgb) {
   }
 
   FIBITMAP* fi_bitmap = FreeImage_Load(format, path.c_str());
+  if (fi_bitmap == nullptr) {
+    return false;
+  }
+
   data_ = FIBitmapPtr(fi_bitmap, &FreeImage_Unload);
 
-  const FREE_IMAGE_COLOR_TYPE color_type = FreeImage_GetColorType(fi_bitmap);
-
-  const bool is_grey =
-      color_type == FIC_MINISBLACK && FreeImage_GetBPP(fi_bitmap) == 8;
-  const bool is_rgb =
-      color_type == FIC_RGB && FreeImage_GetBPP(fi_bitmap) == 24;
-
-  if (!is_rgb && as_rgb) {
+  if (!IsPtrRGB(data_.get()) && as_rgb) {
     FIBITMAP* converted_bitmap = FreeImage_ConvertTo24Bits(fi_bitmap);
     data_ = FIBitmapPtr(converted_bitmap, &FreeImage_Unload);
-  } else if (!is_grey && !as_rgb) {
+  } else if (!IsPtrGrey(data_.get()) && !as_rgb) {
     FIBITMAP* converted_bitmap = FreeImage_ConvertToGreyscale(fi_bitmap);
     data_ = FIBitmapPtr(converted_bitmap, &FreeImage_Unload);
+  }
+
+  if (!IsPtrSupported(data_.get())) {
+    data_.reset();
+    return false;
   }
 
   width_ = FreeImage_GetWidth(data_.get());
@@ -393,6 +449,10 @@ bool Bitmap::Write(const std::string& path, const FREE_IMAGE_FORMAT format,
   FREE_IMAGE_FORMAT save_format;
   if (format == FIF_UNKNOWN) {
     save_format = FreeImage_GetFIFFromFilename(path.c_str());
+    if (save_format == FIF_UNKNOWN) {
+      // If format could not be deduced, save as PNG by default.
+      save_format = FIF_PNG;
+    }
   } else {
     save_format = format;
   }
@@ -491,24 +551,29 @@ bool Bitmap::ReadExifTag(const FREE_IMAGE_MDMODEL model,
 }
 
 void Bitmap::SetPtr(FIBITMAP* data) {
-  data_ = FIBitmapPtr(data, &FreeImage_Unload);
+  if (!IsPtrSupported(data)) {
+    FreeImage_Unload(data);
+    data = FreeImage_ConvertTo24Bits(data);
+  }
 
+  data_ = FIBitmapPtr(data, &FreeImage_Unload);
   width_ = FreeImage_GetWidth(data);
   height_ = FreeImage_GetHeight(data);
+  channels_ = IsPtrRGB(data) ? 3 : 1;
+}
 
-  const FREE_IMAGE_COLOR_TYPE color_type = FreeImage_GetColorType(data);
+bool Bitmap::IsPtrGrey(FIBITMAP* data) {
+  return FreeImage_GetColorType(data) == FIC_MINISBLACK &&
+         FreeImage_GetBPP(data) == 8;
+}
 
-  const bool is_grey =
-      color_type == FIC_MINISBLACK && FreeImage_GetBPP(data) == 8;
-  const bool is_rgb = color_type == FIC_RGB && FreeImage_GetBPP(data) == 24;
+bool Bitmap::IsPtrRGB(FIBITMAP* data) {
+  return FreeImage_GetColorType(data) == FIC_RGB &&
+         FreeImage_GetBPP(data) == 24;
+}
 
-  if (!is_grey && !is_rgb) {
-    FIBITMAP* data_converted = FreeImage_ConvertTo24Bits(data);
-    data_ = FIBitmapPtr(data_converted, &FreeImage_Unload);
-    channels_ = 3;
-  } else {
-    channels_ = is_rgb ? 3 : 1;
-  }
+bool Bitmap::IsPtrSupported(FIBITMAP* data) {
+  return IsPtrGrey(data) || IsPtrRGB(data);
 }
 
 float JetColormap::Red(const float gray) { return Base(gray - 0.25f); }

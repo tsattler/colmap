@@ -1,26 +1,37 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "mvs/depth_map.h"
 
-#include <algorithm>
-#include <fstream>
-
 #include "base/warp.h"
-#include "util/logging.h"
 #include "util/math.h"
 
 namespace colmap {
@@ -53,9 +64,12 @@ void DepthMap::Rescale(const float factor) {
   std::vector<float> new_data(new_width * new_height);
   DownsampleImage(data_.data(), height_, width_, new_height, new_width,
                   new_data.data());
+
   data_ = new_data;
   width_ = new_width;
   height_ = new_height;
+
+  data_.shrink_to_fit();
 }
 
 void DepthMap::Downsize(const size_t max_width, const size_t max_height) {
@@ -64,8 +78,7 @@ void DepthMap::Downsize(const size_t max_width, const size_t max_height) {
   }
   const float factor_x = static_cast<float>(max_width) / width_;
   const float factor_y = static_cast<float>(max_height) / height_;
-  const float factor = std::min(factor_x, factor_y);
-  Rescale(factor);
+  Rescale(std::min(factor_x, factor_y));
 }
 
 Bitmap DepthMap::ToBitmap(const float min_percentile,
@@ -82,6 +95,11 @@ Bitmap DepthMap::ToBitmap(const float min_percentile,
     if (depth > 0) {
       valid_depths.push_back(depth);
     }
+  }
+
+  if (valid_depths.empty()) {
+    bitmap.Fill(BitmapColor<uint8_t>(0));
+    return bitmap;
   }
 
   const float robust_depth_min = Percentile(valid_depths, min_percentile);
@@ -101,7 +119,7 @@ Bitmap DepthMap::ToBitmap(const float min_percentile,
                                        255 * JetColormap::Blue(gray));
         bitmap.SetPixel(x, y, color.Cast<uint8_t>());
       } else {
-        bitmap.SetPixel(x, y, BitmapColor<uint8_t>(0, 0, 0));
+        bitmap.SetPixel(x, y, BitmapColor<uint8_t>(0));
       }
     }
   }

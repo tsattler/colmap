@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/license_widget.h"
 
@@ -30,6 +45,10 @@ LicenseWidget::LicenseWidget(QWidget* parent) : QTextEdit(parent) {
   licenses += "<h2>External</h2>";
   licenses += "<h3>FLANN</h3>";
   licenses += GetFLANNLicense();
+  licenses += "<h3>Graclus</h3>";
+  licenses += GetGraclusLicense();
+  licenses += "<h3>LSD</h3>";
+  licenses += GetLSDLicense();
   licenses += "<h3>PBA</h3>";
   licenses += GetPBALicense();
   licenses += "<h3>PoissonRecon</h3>";
@@ -45,17 +64,50 @@ LicenseWidget::LicenseWidget(QWidget* parent) : QTextEdit(parent) {
 
 QString LicenseWidget::GetCOLMAPLicense() const {
   const QString license =
-      "Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch><br>"
-      "This program is free software: you can redistribute it and/or modify<br>"
-      "it under the terms of the GNU General Public License as published by<br>"
-      "the Free Software Foundation, either version 3 of the License, or<br>"
-      "(at your option) any later version.<br><br>"
-      "This program is distributed in the hope that it will be useful,<br>"
-      "but WITHOUT ANY WARRANTY; without even the implied warranty of<br>"
-      "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the<br>"
-      "GNU General Public License for more details.<br><br>"
-      "You should have received a copy of the GNU General Public License<br>"
-      "along with this program.  If not, see <http://www.gnu.org/licenses/>.";
+      "Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.<br>"
+      "All rights reserved.<br>"
+      "<br>"
+      "Redistribution and use in source and binary forms, with or without<br>"
+      "modification, are permitted provided that the following conditions are "
+      "met:<br>"
+      "<br>"
+      "    * Redistributions of source code must retain the above copyright<br>"
+      "      notice, this list of conditions and the following disclaimer.<br>"
+      "<br>"
+      "    * Redistributions in binary form must reproduce the above "
+      "copyright<br>"
+      "      notice, this list of conditions and the following disclaimer in "
+      "the<br>"
+      "      documentation and/or other materials provided with the "
+      "distribution.<br>"
+      "<br>"
+      "    * Neither the name of ETH Zurich and UNC Chapel Hill nor the names "
+      "of<br>"
+      "      its contributors may be used to endorse or promote products "
+      "derived<br>"
+      "      from this software without specific prior written permission.<br>"
+      "<br>"
+      "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "
+      "\"AS IS\"<br>"
+      "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, "
+      "THE<br>"
+      "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR "
+      "PURPOSE<br>"
+      "ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS "
+      "BE<br>"
+      "LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR<br>"
+      "CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF<br>"
+      "SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR "
+      "BUSINESS<br>"
+      "INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER "
+      "IN<br>"
+      "CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR "
+      "OTHERWISE)<br>"
+      "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF "
+      "THE<br>"
+      "POSSIBILITY OF SUCH DAMAGE.<br>"
+      "<br>"
+      "Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)";
   return license;
 }
 
@@ -95,6 +147,52 @@ QString LicenseWidget::GetFLANNLicense() const {
       "WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE<br>"
       "OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,<br>"
       "EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.";
+  return license;
+}
+
+QString LicenseWidget::GetGraclusLicense() const {
+  const QString license =
+      "Copyright(c) 2008 Brian Kulis, Yuqiang Guan (version 1.2)<br>"
+      "This program is free software: you can redistribute it and/or modify<br>"
+      "it under the terms of the GNU General Public License as published by<br>"
+      "the Free Software Foundation, either version 3 of the License, or<br>"
+      "(at your option) any later version.<br><br>"
+      "This program is distributed in the hope that it will be useful,<br>"
+      "but WITHOUT ANY WARRANTY; without even the implied warranty of<br>"
+      "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the<br>"
+      "GNU General Public License for more details.<br><br>"
+      "You should have received a copy of the GNU General Public License<br>"
+      "along with this program.  If not, see http://www.gnu.org/licenses/.";
+  return license;
+}
+
+QString LicenseWidget::GetLSDLicense() const {
+  const QString license =
+      "LSD - Line Segment Detector on digital images<br>"
+      "<br>"
+      "This code is part of the following publication and was subject<br>"
+      "to peer review:"
+      "<br>"
+      "  \"LSD: a Line Segment Detector\" by Rafael Grompone von Gioi,<br>"
+      "  Jeremie Jakubowicz, Jean-Michel Morel, and Gregory Randall,<br>"
+      "  Image Processing On Line, 2012. DOI:10.5201/ipol.2012.gjmr-lsd<br>"
+      "  http://dx.doi.org/10.5201/ipol.2012.gjmr-lsd<br>"
+      "<br>"
+      "Copyright(c) 2007-2011 rafael grompone von gioi <grompone@gmail.com><br>"
+      "<br>"
+      "This program is free software: you can redistribute it and/or<br>"
+      "modify it under the terms of the GNU Affero General Public License<br>"
+      "as published by the Free Software Foundation, either version 3 of<br>"
+      "the License, or (at your option) any later version.<br>"
+      "<br>"
+      "This program is distributed in the hope that it will be useful,<br>"
+      "but WITHOUT ANY WARRANTY; without even the implied warranty of<br>"
+      "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the<br>"
+      "GNU Affero General Public License for more details.<br>"
+      "<br>"
+      "You should have received a copy of the GNU Affero General Public<br>"
+      "License along with this program.<br>"
+      "If not, see http://www.gnu.org/licenses/.";
   return license;
 }
 

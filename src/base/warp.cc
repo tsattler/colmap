@@ -1,22 +1,37 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "base/warp.h"
 
-#include "ext/VLFeat/imopv.h"
+#include "VLFeat/imopv.h"
 #include "util/logging.h"
 
 namespace colmap {
@@ -40,18 +55,27 @@ void WarpImageBetweenCameras(const Camera& source_camera,
   CHECK_EQ(source_camera.Height(), source_image.Height());
   CHECK_NOTNULL(target_image);
 
-  target_image->Allocate(static_cast<int>(target_camera.Width()),
-                         static_cast<int>(target_camera.Height()),
+  target_image->Allocate(static_cast<int>(source_camera.Width()),
+                         static_cast<int>(source_camera.Height()),
                          source_image.IsRGB());
+
+  // To avoid aliasing, perform the warping in the source resolution and
+  // then rescale the image at the end.
+  Camera scaled_target_camera = target_camera;
+  if (target_camera.Width() != source_camera.Width() ||
+      target_camera.Height() != source_camera.Height()) {
+    scaled_target_camera.Rescale(source_camera.Width(), source_camera.Height());
+  }
 
   Eigen::Vector2d image_point;
   for (int y = 0; y < target_image->Height(); ++y) {
     image_point.y() = y + 0.5;
     for (int x = 0; x < target_image->Width(); ++x) {
       image_point.x() = x + 0.5;
+
       // Camera models assume that the upper left pixel center is (0.5, 0.5).
       const Eigen::Vector2d world_point =
-          target_camera.ImageToWorld(image_point);
+          scaled_target_camera.ImageToWorld(image_point);
       const Eigen::Vector2d source_point =
           source_camera.WorldToImage(world_point);
 
@@ -60,9 +84,90 @@ void WarpImageBetweenCameras(const Camera& source_camera,
                                            source_point.y() - 0.5, &color)) {
         target_image->SetPixel(x, y, color.Cast<uint8_t>());
       } else {
-        target_image->SetPixel(x, y, BitmapColor<uint8_t>(0, 0, 0));
+        target_image->SetPixel(x, y, BitmapColor<uint8_t>(0));
       }
     }
+  }
+
+  if (target_camera.Width() != source_camera.Width() ||
+      target_camera.Height() != source_camera.Height()) {
+    target_image->Rescale(target_camera.Width(), target_camera.Height());
+  }
+}
+
+void WarpImageWithHomography(const Eigen::Matrix3d& H,
+                             const Bitmap& source_image, Bitmap* target_image) {
+  CHECK_NOTNULL(target_image);
+  CHECK_GT(target_image->Width(), 0);
+  CHECK_GT(target_image->Height(), 0);
+  CHECK_EQ(source_image.IsRGB(), target_image->IsRGB());
+
+  Eigen::Vector3d target_pixel(0, 0, 1);
+  for (int y = 0; y < target_image->Height(); ++y) {
+    target_pixel.y() = y + 0.5;
+    for (int x = 0; x < target_image->Width(); ++x) {
+      target_pixel.x() = x + 0.5;
+
+      const Eigen::Vector2d source_pixel = (H * target_pixel).hnormalized();
+
+      BitmapColor<float> color;
+      if (source_image.InterpolateBilinear(source_pixel.x() - 0.5,
+                                           source_pixel.y() - 0.5, &color)) {
+        target_image->SetPixel(x, y, color.Cast<uint8_t>());
+      } else {
+        target_image->SetPixel(x, y, BitmapColor<uint8_t>(0));
+      }
+    }
+  }
+}
+
+void WarpImageWithHomographyBetweenCameras(const Eigen::Matrix3d& H,
+                                           const Camera& source_camera,
+                                           const Camera& target_camera,
+                                           const Bitmap& source_image,
+                                           Bitmap* target_image) {
+  CHECK_EQ(source_camera.Width(), source_image.Width());
+  CHECK_EQ(source_camera.Height(), source_image.Height());
+  CHECK_NOTNULL(target_image);
+
+  target_image->Allocate(static_cast<int>(source_camera.Width()),
+                         static_cast<int>(source_camera.Height()),
+                         source_image.IsRGB());
+
+  // To avoid aliasing, perform the warping in the source resolution and
+  // then rescale the image at the end.
+  Camera scaled_target_camera = target_camera;
+  if (target_camera.Width() != source_camera.Width() ||
+      target_camera.Height() != source_camera.Height()) {
+    scaled_target_camera.Rescale(source_camera.Width(), source_camera.Height());
+  }
+
+  Eigen::Vector3d image_point(0, 0, 1);
+  for (int y = 0; y < target_image->Height(); ++y) {
+    image_point.y() = y + 0.5;
+    for (int x = 0; x < target_image->Width(); ++x) {
+      image_point.x() = x + 0.5;
+
+      // Camera models assume that the upper left pixel center is (0.5, 0.5).
+      const Eigen::Vector3d warped_point = H * image_point;
+      const Eigen::Vector2d world_point =
+          target_camera.ImageToWorld(warped_point.hnormalized());
+      const Eigen::Vector2d source_point =
+          source_camera.WorldToImage(world_point);
+
+      BitmapColor<float> color;
+      if (source_image.InterpolateBilinear(source_point.x() - 0.5,
+                                           source_point.y() - 0.5, &color)) {
+        target_image->SetPixel(x, y, color.Cast<uint8_t>());
+      } else {
+        target_image->SetPixel(x, y, BitmapColor<uint8_t>(0));
+      }
+    }
+  }
+
+  if (target_camera.Width() != source_camera.Width() ||
+      target_camera.Height() != source_camera.Height()) {
+    target_image->Rescale(target_camera.Width(), target_camera.Height());
   }
 }
 
@@ -133,9 +238,11 @@ void DownsampleImage(const float* data, const int rows, const int cols,
   const float scale_c = static_cast<float>(cols) / static_cast<float>(new_cols);
   const float scale_r = static_cast<float>(rows) / static_cast<float>(new_rows);
 
-  const float kSigmaScale = 0.25f;
-  const float sigma_c = kSigmaScale * scale_c;
-  const float sigma_r = kSigmaScale * scale_r;
+  const float kSigmaScale = 0.5f;
+  const float sigma_c = std::max(std::numeric_limits<float>::epsilon(),
+                                 kSigmaScale * (scale_c - 1));
+  const float sigma_r = std::max(std::numeric_limits<float>::epsilon(),
+                                 kSigmaScale * (scale_r - 1));
 
   std::vector<float> smoothed(rows * cols);
   SmoothImage(data, rows, cols, sigma_r, sigma_c, smoothed.data());

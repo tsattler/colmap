@@ -1,11 +1,12 @@
 # Custom files
 LocalConfig.cmake
+src/util/version.h
 
 # Custom directories
 .idea/
+.vscode
 .DS_Store
-build-debug/
-build-release/
+build*/
 install-debug/
 install-release/
 data/

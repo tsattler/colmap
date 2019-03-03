@@ -1,25 +1,37 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "util/misc.h"
 
 #include <cstdarg>
-#include <sstream>
-#include <stdarg.h>
-#include <stdio.h>
 
 #include <boost/algorithm/string.hpp>
 
@@ -40,7 +52,7 @@ bool HasFileExtension(const std::string& file_name, const std::string& ext) {
   CHECK(!ext.empty());
   CHECK_EQ(ext.at(0), '.');
   std::string ext_lower = ext;
-  boost::to_lower(ext_lower);
+  StringToLower(&ext_lower);
   if (file_name.size() >= ext_lower.size() &&
       file_name.substr(file_name.size() - ext_lower.size(), ext_lower.size()) ==
           ext_lower) {
@@ -49,8 +61,41 @@ bool HasFileExtension(const std::string& file_name, const std::string& ext) {
   return false;
 }
 
+void SplitFileExtension(const std::string& path, std::string* root,
+                        std::string* ext) {
+  const auto parts = StringSplit(path, ".");
+  CHECK_GT(parts.size(), 0);
+  if (parts.size() == 1) {
+    *root = parts[0];
+    *ext = "";
+  } else {
+    *root = "";
+    for (size_t i = 0; i < parts.size() - 1; ++i) {
+      *root += parts[i] + ".";
+    }
+    *root = root->substr(0, root->length() - 1);
+    if (parts.back() == "") {
+      *ext = "";
+    } else {
+      *ext = "." + parts.back();
+    }
+  }
+}
+
+bool ExistsFile(const std::string& path) {
+  return boost::filesystem::is_regular_file(path);
+}
+
+bool ExistsDir(const std::string& path) {
+  return boost::filesystem::is_directory(path);
+}
+
+bool ExistsPath(const std::string& path) {
+  return boost::filesystem::exists(path);
+}
+
 void CreateDirIfNotExists(const std::string& path) {
-  if (!boost::filesystem::is_directory(path)) {
+  if (!ExistsDir(path)) {
     CHECK(boost::filesystem::create_directory(path));
   }
 }
@@ -65,6 +110,22 @@ std::string GetPathBaseName(const std::string& path) {
   }
 }
 
+std::string GetParentDir(const std::string& path) {
+  return boost::filesystem::path(path).parent_path().string();
+}
+
+std::vector<std::string> GetFileList(const std::string& path) {
+  std::vector<std::string> file_list;
+  for (auto it = boost::filesystem::directory_iterator(path);
+       it != boost::filesystem::directory_iterator(); ++it) {
+    if (boost::filesystem::is_regular_file(*it)) {
+      const boost::filesystem::path file_path = *it;
+      file_list.push_back(file_path.string());
+    }
+  }
+  return file_list;
+}
+
 std::vector<std::string> GetRecursiveFileList(const std::string& path) {
   std::vector<std::string> file_list;
   for (auto it = boost::filesystem::recursive_directory_iterator(path);
@@ -75,6 +136,36 @@ std::vector<std::string> GetRecursiveFileList(const std::string& path) {
     }
   }
   return file_list;
+}
+
+std::vector<std::string> GetDirList(const std::string& path) {
+  std::vector<std::string> dir_list;
+  for (auto it = boost::filesystem::directory_iterator(path);
+       it != boost::filesystem::directory_iterator(); ++it) {
+    if (boost::filesystem::is_directory(*it)) {
+      const boost::filesystem::path dir_path = *it;
+      dir_list.push_back(dir_path.string());
+    }
+  }
+  return dir_list;
+}
+
+std::vector<std::string> GetRecursiveDirList(const std::string& path) {
+  std::vector<std::string> dir_list;
+  for (auto it = boost::filesystem::recursive_directory_iterator(path);
+       it != boost::filesystem::recursive_directory_iterator(); ++it) {
+    if (boost::filesystem::is_directory(*it)) {
+      const boost::filesystem::path dir_path = *it;
+      dir_list.push_back(dir_path.string());
+    }
+  }
+  return dir_list;
+}
+
+size_t GetFileSize(const std::string& path) {
+  std::ifstream file(path, std::ifstream::ate | std::ifstream::binary);
+  CHECK(file.is_open()) << path;
+  return file.tellg();
 }
 
 void PrintHeading1(const std::string& heading) {
@@ -88,17 +179,81 @@ void PrintHeading2(const std::string& heading) {
   std::cout << std::string(std::min<int>(heading.size(), 78), '-') << std::endl;
 }
 
-bool IsBigEndian() {
-  union {
-    uint32_t i;
-    char c[4];
-  } bin = {0x01020304};
-  return bin.c[0] == 1;
+template <>
+std::vector<std::string> CSVToVector(const std::string& csv) {
+  auto elems = StringSplit(csv, ",;");
+  std::vector<std::string> values;
+  values.reserve(elems.size());
+  for (auto& elem : elems) {
+    StringTrim(&elem);
+    if (elem.empty()) {
+      continue;
+    }
+    values.push_back(elem);
+  }
+  return values;
+}
+
+template <>
+std::vector<int> CSVToVector(const std::string& csv) {
+  auto elems = StringSplit(csv, ",;");
+  std::vector<int> values;
+  values.reserve(elems.size());
+  for (auto& elem : elems) {
+    StringTrim(&elem);
+    if (elem.empty()) {
+      continue;
+    }
+    try {
+      values.push_back(std::stoi(elem));
+    } catch (std::exception) {
+      return std::vector<int>(0);
+    }
+  }
+  return values;
+}
+
+template <>
+std::vector<float> CSVToVector(const std::string& csv) {
+  auto elems = StringSplit(csv, ",;");
+  std::vector<float> values;
+  values.reserve(elems.size());
+  for (auto& elem : elems) {
+    StringTrim(&elem);
+    if (elem.empty()) {
+      continue;
+    }
+    try {
+      values.push_back(std::stod(elem));
+    } catch (std::exception) {
+      return std::vector<float>(0);
+    }
+  }
+  return values;
+}
+
+template <>
+std::vector<double> CSVToVector(const std::string& csv) {
+  auto elems = StringSplit(csv, ",;");
+  std::vector<double> values;
+  values.reserve(elems.size());
+  for (auto& elem : elems) {
+    StringTrim(&elem);
+    if (elem.empty()) {
+      continue;
+    }
+    try {
+      values.push_back(std::stold(elem));
+    } catch (std::exception) {
+      return std::vector<double>(0);
+    }
+  }
+  return values;
 }
 
 std::vector<std::string> ReadTextFileLines(const std::string& path) {
-  std::ifstream file(path.c_str());
-  CHECK(file.is_open());
+  std::ifstream file(path);
+  CHECK(file.is_open()) << path;
 
   std::string line;
   std::vector<std::string> lines;
@@ -113,6 +268,18 @@ std::vector<std::string> ReadTextFileLines(const std::string& path) {
   }
 
   return lines;
+}
+
+void RemoveCommandLineArgument(const std::string& arg, int* argc, char** argv) {
+  for (int i = 0; i < *argc; ++i) {
+    if (argv[i] == arg) {
+      for (int j = i + 1; j < *argc; ++j) {
+        argv[i] = argv[j];
+      }
+      *argc -= 1;
+      break;
+    }
+  }
 }
 
 }  // namespace colmap

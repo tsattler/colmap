@@ -1,18 +1,33 @@
-# COLMAP - Structure-from-Motion and Multi-View Stereo.
-# Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+# Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+# All rights reserved.
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
 #
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#
+#     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+#       its contributors may be used to endorse or promote products derived
+#       from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
+# Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 # This script exports a COLMAP database to the file structure to run Bundler.
 
@@ -72,8 +87,6 @@ def main():
                 shutil.copyfile(os.path.join(args.image_path, image_name),
                                 os.path.join(args.output_path, image_name))
 
-    descriptor_str = 6 * (20 * " 0" + "\n") + 8 * " 0" + "\n"
-
     for image_id, (image_idx, image_name) in images.iteritems():
         print "Exporting key file for", image_name
         base_name, ext = os.path.splitext(image_name)
@@ -85,18 +98,25 @@ def main():
         cursor.execute("SELECT data FROM keypoints WHERE image_id=?;",
                        (image_id,))
         row = next(cursor)
-        keypoints = np.fromstring(row[0], dtype=np.float32).reshape(-1, 4)
-        cursor.execute("SELECT data FROM descriptors WHERE image_id=?;",
-                       (image_id,))
-        row = next(cursor)
-        descriptors = np.fromstring(row[0], dtype=np.uint8).reshape(-1, 128)
+        if row[0] is None:
+            keypoints = np.zeros((0, 6), dtype=np.float32)
+            descriptors = np.zeros((0, 128), dtype=np.uint8)
+        else:
+            keypoints = np.fromstring(row[0], dtype=np.float32).reshape(-1, 6)
+            cursor.execute("SELECT data FROM descriptors WHERE image_id=?;",
+                        (image_id,))
+            row = next(cursor)
+            descriptors = np.fromstring(row[0], dtype=np.uint8).reshape(-1, 128)
 
         with open(key_file_name, "w") as fid:
             fid.write("%d %d\n" % (keypoints.shape[0], descriptors.shape[1]))
             for r in range(keypoints.shape[0]):
-                fid.write("%f %f %f %f\n" % (keypoints[r, 0], keypoints[r, 1],
+                fid.write("%f %f %f %f\n" % (keypoints[r, 1], keypoints[r, 0],
                                              keypoints[r, 2], keypoints[r, 3]))
-                fid.write(descriptor_str)
+                for i in range(0, 128, 20):
+                    desc_block = descriptors[r, i:i+20]
+                    fid.write(" ".join(map(str, desc_block.ravel().tolist())))
+                    fid.write("\n")
 
         with open(key_file_name, "rb") as fid_in:
             with gzip.open(key_file_name + ".gz", "wb") as fid_out:
@@ -105,7 +125,7 @@ def main():
         os.remove(key_file_name)
 
     with open(os.path.join(args.output_path, "matches.init.txt"), "w") as fid:
-        cursor.execute("SELECT pair_id, data FROM inlier_matches "
+        cursor.execute("SELECT pair_id, data FROM two_view_geometries "
                        "WHERE rows>=?;", (args.min_num_matches,))
         for row in cursor:
             pair_id = row[0]

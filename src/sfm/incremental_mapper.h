@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_SFM_INCREMENTAL_MAPPER_H_
 #define COLMAP_SRC_SFM_INCREMENTAL_MAPPER_H_
@@ -22,6 +37,7 @@
 #include "base/reconstruction.h"
 #include "optim/bundle_adjustment.h"
 #include "sfm/incremental_triangulator.h"
+#include "util/alignment.h"
 
 namespace colmap {
 
@@ -61,6 +77,9 @@ class IncrementalMapper {
     // Minimum triangulation angle for initial image pair.
     double init_min_tri_angle = 16.0;
 
+    // Maximum number of trials to use an image for initialization.
+    int init_max_reg_trials = 2;
+
     // Maximum reprojection error in absolute pose estimation.
     double abs_pose_max_error = 12.0;
 
@@ -78,6 +97,9 @@ class IncrementalMapper {
 
     // Number of images to optimize in local bundle adjustment.
     int local_ba_num_images = 6;
+
+    // Minimum triangulation for images to be chosen in local bundle adjustment.
+    double local_ba_min_tri_angle = 6;
 
     // Thresholds for bogus camera parameters. Images with bogus camera
     // parameters are filtered and ignored in triangulation.
@@ -106,7 +128,7 @@ class IncrementalMapper {
     ImageSelectionMethod image_selection_method =
         ImageSelectionMethod::MIN_UNCERTAINTY;
 
-    void Check() const;
+    bool Check() const;
   };
 
   struct LocalBundleAdjustmentReport {
@@ -118,7 +140,7 @@ class IncrementalMapper {
 
   // Create incremental mapper. The database cache must live for the entire
   // life-time of the incremental mapper.
-  IncrementalMapper(const DatabaseCache* database_cache);
+  explicit IncrementalMapper(const DatabaseCache* database_cache);
 
   // Prepare the mapper for a new reconstruction, which might have existing
   // registered images (in which case `RegisterNextImage` must be called) or
@@ -171,24 +193,27 @@ class IncrementalMapper {
   // the redundancy in subsequent bundle adjustments.
   size_t MergeTracks(const IncrementalTriangulator::Options& tri_options);
 
-  // Adjust locally connected images and points of a reference image. This will
-  // also refine any recently changed observations since the last call to this
-  // function. Only cameras connected to the reference image are optimized. If
-  // points are changed but their images are not connected, the cameras are set
-  // as constant in the adjustment.
+  // Adjust locally connected images and points of a reference image. In
+  // addition, refine the provided 3D points. Only images connected to the
+  // reference image are optimized. If the provided 3D points are not locally
+  // connected to the reference image, their observing images are set as
+  // constant in the adjustment.
   LocalBundleAdjustmentReport AdjustLocalBundle(
-      const Options& options, const BundleAdjuster::Options& ba_options,
+      const Options& options, const BundleAdjustmentOptions& ba_options,
       const IncrementalTriangulator::Options& tri_options,
-      const image_t image_id);
+      const image_t image_id, const std::unordered_set<point3D_t>& point3D_ids);
 
   // Global bundle adjustment using Ceres Solver or PBA.
-  bool AdjustGlobalBundle(const BundleAdjuster::Options& ba_options);
+  bool AdjustGlobalBundle(const BundleAdjustmentOptions& ba_options);
   bool AdjustParallelGlobalBundle(
-      const ParallelBundleAdjuster::Options& ba_options);
+      const BundleAdjustmentOptions& ba_options,
+      const ParallelBundleAdjuster::Options& parallel_ba_options);
 
   // Filter images and point observations.
   size_t FilterImages(const Options& options);
   size_t FilterPoints(const Options& options);
+
+  const Reconstruction& GetReconstruction() const;
 
   // Number of images that are registered in at least on reconstruction.
   size_t NumTotalRegImages() const;
@@ -197,11 +222,17 @@ class IncrementalMapper {
   // previous reconstructions.
   size_t NumSharedRegImages() const;
 
+  // Get changed 3D points, since the last call to `ClearModifiedPoints3D`.
+  const std::unordered_set<point3D_t>& GetModifiedPoints3D();
+
+  // Clear the collection of changed 3D points.
+  void ClearModifiedPoints3D();
+
  private:
   // Find seed images for incremental reconstruction. Suitable seed images have
   // a large number of correspondences and have camera calibration priors. The
   // returned list is ordered such that most suitable images are in the front.
-  std::vector<image_t> FindFirstInitialImage() const;
+  std::vector<image_t> FindFirstInitialImage(const Options& options) const;
 
   // For a given first seed image, find other images that are connected to the
   // first image. Suitable second images have a large number of correspondences
@@ -246,9 +277,10 @@ class IncrementalMapper {
   image_pair_t prev_init_image_pair_id_;
   TwoViewGeometry prev_init_two_view_geometry_;
 
-  // Image pairs that have been used for initialization. Each image pair is
-  // only tried once for initialization.
-  std::unordered_set<image_pair_t> tried_init_image_pairs_;
+  // Images and image pairs that have been used for initialization. Each image
+  // and image pair is only tried once for initialization.
+  std::unordered_map<image_t, size_t> init_num_reg_trials_;
+  std::unordered_set<image_pair_t> init_image_pairs_;
 
   // Cameras whose parameters have been refined in pose refinement. Used
   // to avoid duplicate refinement of camera parameters or degradation of

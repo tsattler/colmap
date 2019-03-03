@@ -1,26 +1,38 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "base/triangulation.h"
 
-#include <Eigen/Geometry>
-
 #include "base/essential_matrix.h"
 #include "base/pose.h"
-#include "util/math.h"
 
 namespace colmap {
 
@@ -110,15 +122,17 @@ std::vector<Eigen::Vector3d> TriangulateOptimalPoints(
 double CalculateTriangulationAngle(const Eigen::Vector3d& proj_center1,
                                    const Eigen::Vector3d& proj_center2,
                                    const Eigen::Vector3d& point3D) {
-  const double baseline2 = (proj_center1 - proj_center2).squaredNorm();
+  const double baseline_length_squared =
+      (proj_center1 - proj_center2).squaredNorm();
 
-  const double ray1 = (point3D - proj_center1).norm();
-  const double ray2 = (point3D - proj_center2).norm();
+  const double ray_length_squared1 = (point3D - proj_center1).squaredNorm();
+  const double ray_length_squared2 = (point3D - proj_center2).squaredNorm();
 
   // Angle between rays at point within the enclosing triangle,
   // see "law of cosines".
-  const double angle = std::abs(
-      std::acos((ray1 * ray1 + ray2 * ray2 - baseline2) / (2 * ray1 * ray2)));
+  const double angle = std::abs(std::acos(
+      (ray_length_squared1 + ray_length_squared2 - baseline_length_squared) /
+      (2.0 * std::sqrt(ray_length_squared1) * std::sqrt(ray_length_squared2))));
 
   if (IsNaN(angle)) {
     return 0;
@@ -131,30 +145,27 @@ double CalculateTriangulationAngle(const Eigen::Vector3d& proj_center1,
 }
 
 std::vector<double> CalculateTriangulationAngles(
-    const Eigen::Matrix3x4d& proj_matrix1,
-    const Eigen::Matrix3x4d& proj_matrix2,
+    const Eigen::Vector3d& proj_center1, const Eigen::Vector3d& proj_center2,
     const std::vector<Eigen::Vector3d>& points3D) {
-  const Eigen::Vector3d& proj_center1 =
-      ProjectionCenterFromMatrix(proj_matrix1);
-  const Eigen::Vector3d& proj_center2 =
-      ProjectionCenterFromMatrix(proj_matrix2);
-
-  // Baseline length between cameras.
-  const double baseline2 = (proj_center1 - proj_center2).squaredNorm();
+  // Baseline length between camera centers.
+  const double baseline_length_squared =
+      (proj_center1 - proj_center2).squaredNorm();
 
   std::vector<double> angles(points3D.size());
 
   for (size_t i = 0; i < points3D.size(); ++i) {
-    const Eigen::Vector3d& point3D = points3D[i];
-
     // Ray lengths from cameras to point.
-    const double ray1 = (point3D - proj_center1).norm();
-    const double ray2 = (point3D - proj_center2).norm();
+    const double ray_length_squared1 =
+        (points3D[i] - proj_center1).squaredNorm();
+    const double ray_length_squared2 =
+        (points3D[i] - proj_center2).squaredNorm();
 
     // Angle between rays at point within the enclosing triangle,
     // see "law of cosines".
-    const double angle = std::abs(
-        std::acos((ray1 * ray1 + ray2 * ray2 - baseline2) / (2 * ray1 * ray2)));
+    const double angle = std::abs(std::acos(
+        (ray_length_squared1 + ray_length_squared2 - baseline_length_squared) /
+        (2.0 * std::sqrt(ray_length_squared1) *
+         std::sqrt(ray_length_squared2))));
 
     if (IsNaN(angle)) {
       angles[i] = 0;

@@ -1,32 +1,45 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/movie_grabber_widget.h"
 
 #include "base/pose.h"
 #include "base/projection.h"
-#include "ui/opengl_window.h"
-#include "ui/qt_utils.h"
-#include "util/math.h"
+#include "ui/model_viewer_widget.h"
 
 namespace colmap {
 
 MovieGrabberWidget::MovieGrabberWidget(QWidget* parent,
-                                       OpenGLWindow* opengl_window)
-    : QWidget(parent), opengl_window_(opengl_window) {
+                                       ModelViewerWidget* model_viewer_widget)
+    : QWidget(parent), model_viewer_widget_(model_viewer_widget) {
   setWindowFlags(Qt::Widget | Qt::WindowStaysOnTopHint | Qt::Tool);
   setWindowTitle("Grab movie");
 
@@ -93,7 +106,7 @@ MovieGrabberWidget::MovieGrabberWidget(QWidget* parent,
 }
 
 void MovieGrabberWidget::Add() {
-  const QMatrix4x4 matrix = opengl_window_->ModelViewMatrix();
+  const QMatrix4x4 matrix = model_viewer_widget_->ModelViewMatrix();
 
   double time = 0;
   if (table_->rowCount() > 0) {
@@ -109,8 +122,8 @@ void MovieGrabberWidget::Add() {
   // Save size state of current viewpoint.
   ViewData view_data;
   view_data.model_view_matrix = matrix;
-  view_data.point_size = opengl_window_->PointSize();
-  view_data.image_size = opengl_window_->ImageSize();
+  view_data.point_size = model_viewer_widget_->PointSize();
+  view_data.image_size = model_viewer_widget_->ImageSize();
   view_data_.emplace(item, view_data);
 
   table_->insertRow(table_->rowCount());
@@ -118,14 +131,14 @@ void MovieGrabberWidget::Add() {
   table_->selectRow(table_->rowCount() - 1);
 
   // Zoom out a little, so that we can see the newly added camera
-  opengl_window_->ChangeFocusDistance(-5);
+  model_viewer_widget_->ChangeFocusDistance(-5);
 }
 
 void MovieGrabberWidget::Delete() {
   QModelIndexList selection = table_->selectionModel()->selectedIndexes();
   foreach (QModelIndex index, selection) { table_->removeRow(index.row()); }
   UpdateViews();
-  opengl_window_->UpdateMovieGrabber();
+  model_viewer_widget_->UpdateMovieGrabber();
 }
 
 void MovieGrabberWidget::Clear() {
@@ -134,7 +147,7 @@ void MovieGrabberWidget::Clear() {
     table_->removeRow(0);
   }
   views.clear();
-  opengl_window_->UpdateMovieGrabber();
+  model_viewer_widget_->UpdateMovieGrabber();
 }
 
 void MovieGrabberWidget::Assemble() {
@@ -144,8 +157,8 @@ void MovieGrabberWidget::Assemble() {
     return;
   }
 
-  if (opengl_window_->GetProjectionType() !=
-      OpenGLWindow::ProjectionType::PERSPECTIVE) {
+  if (model_viewer_widget_->GetProjectionType() !=
+      RenderOptions::ProjectionType::PERSPECTIVE) {
     QMessageBox::critical(this, tr("Error"),
                           tr("You must use perspective projection."));
     return;
@@ -161,15 +174,16 @@ void MovieGrabberWidget::Assemble() {
 
   const QDir dir = QDir(path);
 
-  const QMatrix4x4 model_view_matrix_cached = opengl_window_->ModelViewMatrix();
-  const float point_size_cached = opengl_window_->PointSize();
-  const float image_size_cached = opengl_window_->ImageSize();
+  const QMatrix4x4 model_view_matrix_cached =
+      model_viewer_widget_->ModelViewMatrix();
+  const float point_size_cached = model_viewer_widget_->PointSize();
+  const float image_size_cached = model_viewer_widget_->ImageSize();
   const std::vector<Image> views_cached = views;
 
   // Make sure we do not render movie grabber path.
   views.clear();
-  opengl_window_->UpdateMovieGrabber();
-  opengl_window_->DisableCoordinateGrid();
+  model_viewer_widget_->UpdateMovieGrabber();
+  model_viewer_widget_->DisableCoordinateGrid();
 
   const float frame_rate = frame_rate_sb_->value();
   const float frame_time = 1.0f / frame_rate;
@@ -229,16 +243,16 @@ void MovieGrabberWidget::Assemble() {
       frame_model_view_matrix.topLeftCorner<3, 4>() = InvertProjectionMatrix(
           ComposeProjectionMatrix(interp_qvec, interp_tvec));
 
-      opengl_window_->SetModelViewMatrix(
+      model_viewer_widget_->SetModelViewMatrix(
           EigenToQMatrix(frame_model_view_matrix.cast<float>()));
 
       // Set point and image sizes.
-      opengl_window_->SetPointSize(prev_view_data.point_size +
-                                   dpoint_size * tt);
-      opengl_window_->SetImageSize(prev_view_data.image_size +
-                                   dimage_size * tt);
+      model_viewer_widget_->SetPointSize(prev_view_data.point_size +
+                                         dpoint_size * tt);
+      model_viewer_widget_->SetImageSize(prev_view_data.image_size +
+                                         dimage_size * tt);
 
-      QImage image = opengl_window_->GrabImage();
+      QImage image = model_viewer_widget_->GrabImage();
       image.save(dir.filePath(
           "frame" + QString().sprintf("%06zu", frame_number) + ".png"));
       frame_number += 1;
@@ -249,23 +263,23 @@ void MovieGrabberWidget::Assemble() {
   }
 
   views = views_cached;
-  opengl_window_->SetPointSize(point_size_cached);
-  opengl_window_->SetImageSize(image_size_cached);
-  opengl_window_->UpdateMovieGrabber();
-  opengl_window_->EnableCoordinateGrid();
-  opengl_window_->SetModelViewMatrix(model_view_matrix_cached);
+  model_viewer_widget_->SetPointSize(point_size_cached);
+  model_viewer_widget_->SetImageSize(image_size_cached);
+  model_viewer_widget_->UpdateMovieGrabber();
+  model_viewer_widget_->EnableCoordinateGrid();
+  model_viewer_widget_->SetModelViewMatrix(model_view_matrix_cached);
 }
 
 void MovieGrabberWidget::TimeChanged(QTableWidgetItem* item) {
   table_->sortItems(0, Qt::AscendingOrder);
   UpdateViews();
-  opengl_window_->UpdateMovieGrabber();
+  model_viewer_widget_->UpdateMovieGrabber();
 }
 
 void MovieGrabberWidget::SelectionChanged(const QItemSelection& selected,
                                           const QItemSelection& deselected) {
   foreach (QModelIndex index, table_->selectionModel()->selectedIndexes()) {
-    opengl_window_->SelectMoviewGrabberView(index.row());
+    model_viewer_widget_->SelectMoviewGrabberView(index.row());
   }
 }
 

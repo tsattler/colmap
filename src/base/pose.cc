@@ -1,30 +1,49 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "base/pose.h"
 
 #include <Eigen/Eigenvalues>
-#include <Eigen/Geometry>
 
 #include "base/projection.h"
 #include "base/triangulation.h"
-#include "util/logging.h"
-#include "util/math.h"
 
 namespace colmap {
+
+Eigen::Matrix3d CrossProductMatrix(const Eigen::Vector3d& vector) {
+  Eigen::Matrix3d matrix;
+  matrix << 0, -vector(2), vector(1), vector(2), 0, -vector(0), -vector(1),
+      vector(0), 0;
+  return matrix;
+}
 
 void RotationMatrixToEulerAngles(const Eigen::Matrix3d& R, double* rx,
                                  double* ry, double* rz) {
@@ -67,15 +86,12 @@ Eigen::Vector4d NormalizeQuaternion(const Eigen::Vector4d& qvec) {
     // for automatic differentiation that would lead to a zero derivative.
     return Eigen::Vector4d(1.0, qvec(1), qvec(2), qvec(3));
   } else {
-    const double inv_norm = 1.0 / norm;
-    return inv_norm * qvec;
+    return qvec / norm;
   }
 }
 
 Eigen::Vector4d InvertQuaternion(const Eigen::Vector4d& qvec) {
-  const Eigen::Vector4d normalized_qvec = NormalizeQuaternion(qvec);
-  return Eigen::Vector4d(normalized_qvec(0), -normalized_qvec(1),
-                         -normalized_qvec(2), -normalized_qvec(3));
+  return Eigen::Vector4d(qvec(0), -qvec(1), -qvec(2), -qvec(3));
 }
 
 Eigen::Vector4d ConcatenateQuaternions(const Eigen::Vector4d& qvec1,
@@ -126,13 +142,27 @@ Eigen::Vector4d AverageQuaternions(const std::vector<Eigen::Vector4d>& qvecs,
   return eigenvectors.col(3);
 }
 
+Eigen::Matrix3d RotationFromUnitVectors(const Eigen::Vector3d& vector1,
+                                        const Eigen::Vector3d& vector2) {
+  const Eigen::Vector3d v1 = vector1.normalized();
+  const Eigen::Vector3d v2 = vector2.normalized();
+  const Eigen::Vector3d v = v1.cross(v2);
+  const Eigen::Matrix3d v_x = CrossProductMatrix(v);
+  const double c = v1.dot(v2);
+  if (c == -1) {
+    return Eigen::Matrix3d::Identity();
+  } else {
+    return Eigen::Matrix3d::Identity() + v_x + 1 / (1 + c) * (v_x * v_x);
+  }
+}
+
 Eigen::Vector3d ProjectionCenterFromMatrix(
     const Eigen::Matrix3x4d& proj_matrix) {
   return -proj_matrix.leftCols<3>().transpose() * proj_matrix.rightCols<1>();
 }
 
-Eigen::Vector3d ProjectionCenterFromParameters(const Eigen::Vector4d& qvec,
-                                               const Eigen::Vector3d& tvec) {
+Eigen::Vector3d ProjectionCenterFromPose(const Eigen::Vector4d& qvec,
+                                         const Eigen::Vector3d& tvec) {
   // Inverse rotation as conjugate quaternion.
   const Eigen::Vector4d normalized_qvec = NormalizeQuaternion(qvec);
   const Eigen::Quaterniond quat(normalized_qvec(0), -normalized_qvec(1),
@@ -187,8 +217,8 @@ Eigen::Vector3d CalculateBaseline(const Eigen::Vector4d& qvec1,
                                   const Eigen::Vector3d& tvec1,
                                   const Eigen::Vector4d& qvec2,
                                   const Eigen::Vector3d& tvec2) {
-  const Eigen::Vector3d center1 = ProjectionCenterFromParameters(qvec1, tvec1);
-  const Eigen::Vector3d center2 = ProjectionCenterFromParameters(qvec2, tvec2);
+  const Eigen::Vector3d center1 = ProjectionCenterFromPose(qvec1, tvec1);
+  const Eigen::Vector3d center2 = ProjectionCenterFromPose(qvec2, tvec2);
   return center2 - center1;
 }
 

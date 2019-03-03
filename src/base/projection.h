@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_BASE_PROJECTION_H_
 #define COLMAP_SRC_BASE_PROJECTION_H_
@@ -47,7 +62,7 @@ Eigen::Matrix3x4d ComposeProjectionMatrix(const Eigen::Vector4d& qvec,
 //
 // @return               3x4 projection matrix.
 Eigen::Matrix3x4d ComposeProjectionMatrix(const Eigen::Matrix3d& R,
-                                          const Eigen::Vector3d& t);
+                                          const Eigen::Vector3d& T);
 
 // Invert projection matrix, defined as:
 //
@@ -61,6 +76,17 @@ Eigen::Matrix3x4d ComposeProjectionMatrix(const Eigen::Matrix3d& R,
 //
 // @return               3x4 inverse projection matrix.
 Eigen::Matrix3x4d InvertProjectionMatrix(const Eigen::Matrix3x4d& proj_matrix);
+
+// Compute the closes rotation matrix with the closest Frobenius norm by setting
+// the singular values of the given matrix to 1.
+Eigen::Matrix3d ComputeClosestRotationMatrix(const Eigen::Matrix3d& matrix);
+
+// Decompose projection matrix into intrinsic camera matrix, rotation matrix and
+// translation vector. Returns false if decomposition fails. This implementation
+// is inspired by the OpenCV implementation with some additional checks.
+bool DecomposeProjectionMatrix(const Eigen::Matrix3x4d& proj_matrix,
+                               Eigen::Matrix3d* K, Eigen::Matrix3d* R,
+                               Eigen::Vector3d* T);
 
 // Project 3D point to image.
 //
@@ -76,30 +102,26 @@ Eigen::Vector2d ProjectPointToImage(const Eigen::Vector3d& point3D,
 // Calculate the reprojection error.
 //
 // The reprojection error is the Euclidean distance between the observation
-// in the image and the projection of the 3D point into the image.
-//
-// @param points2D         2D image point as 2x1 vector.
-// @param points3D         3D world point as 3x1 vector.
-// @param proj_matrix      3x4 projection matrix.
-// @param camera           Camera used to project to image plane.
-//
-// @return                 Reprojection error.
-double CalculateReprojectionError(const Eigen::Vector2d& point2D,
-                                  const Eigen::Vector3d& point3D,
-                                  const Eigen::Matrix3x4d& proj_matrix,
-                                  const Camera& camera);
+// in the image and the projection of the 3D point into the image. If the
+// 3D point is behind the camera, then this function returns DBL_MAX.
+double CalculateSquaredReprojectionError(const Eigen::Vector2d& point2D,
+                                         const Eigen::Vector3d& point3D,
+                                         const Eigen::Vector4d& qvec,
+                                         const Eigen::Vector3d& tvec,
+                                         const Camera& camera);
+double CalculateSquaredReprojectionError(const Eigen::Vector2d& point2D,
+                                         const Eigen::Vector3d& point3D,
+                                         const Eigen::Matrix3x4d& proj_matrix,
+                                         const Camera& camera);
 
 // Calculate the angular error.
 //
 // The angular error is the angle between the observed viewing ray and the
 // actual viewing ray from the camera center to the 3D point.
-//
-// @param points2D         2D image point as 2x1 vector.
-// @param points3D         3D world point as 3x1 vector.
-// @param proj_matrix      3x4 projection matrix.
-// @param camera           Camera used to project to image plane.
-//
-// @return                 Angular error.
+double CalculateAngularError(const Eigen::Vector2d& point2D,
+                             const Eigen::Vector3d& point3D,
+                             const Eigen::Vector4d& qvec,
+                             const Eigen::Vector3d& tvec, const Camera& camera);
 double CalculateAngularError(const Eigen::Vector2d& point2D,
                              const Eigen::Vector3d& point3D,
                              const Eigen::Matrix3x4d& proj_matrix,
@@ -109,15 +131,13 @@ double CalculateAngularError(const Eigen::Vector2d& point2D,
 //
 // The angular error is the angle between the observed viewing ray and the
 // actual viewing ray from the camera center to the 3D point.
-//
-// @param points2D         Normalized 2D image point as 2x1 vector.
-// @param points3D         3D world point as 3x1 vector.
-// @param proj_matrix      3x4 projection matrix.
-//
-// @return                 Angular error.
-double CalculateAngularError(const Eigen::Vector2d& point2D,
-                             const Eigen::Vector3d& point3D,
-                             const Eigen::Matrix3x4d& proj_matrix);
+double CalculateNormalizedAngularError(const Eigen::Vector2d& point2D,
+                                       const Eigen::Vector3d& point3D,
+                                       const Eigen::Vector4d& qvec,
+                                       const Eigen::Vector3d& tvec);
+double CalculateNormalizedAngularError(const Eigen::Vector2d& point2D,
+                                       const Eigen::Vector3d& point3D,
+                                       const Eigen::Matrix3x4d& proj_matrix);
 
 // Calculate depth of 3D point with respect to camera.
 //

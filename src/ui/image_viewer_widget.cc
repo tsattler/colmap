@@ -1,35 +1,58 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/image_viewer_widget.h"
 
-#include <iostream>
-
-#include "base/camera_models.h"
-#include "ui/opengl_window.h"
-#include "util/bitmap.h"
+#include "ui/model_viewer_widget.h"
 #include "util/misc.h"
 
 namespace colmap {
 
-const double ImageViewerWidget::kZoomFactor = 1.25;
+const double ImageViewerWidget::kZoomFactor = 1.20;
 
-ImageViewerWidget::ImageViewerWidget(QWidget* parent)
-    : QWidget(parent), zoom_scale_(1.0) {
-  setWindowFlags(Qt::Window);
+ImageViewerGraphicsScene::ImageViewerGraphicsScene() {
+  setSceneRect(0, 0, 0, 0);
+  image_pixmap_item_ = addPixmap(QPixmap::fromImage(QImage()));
+  image_pixmap_item_->setZValue(-1);
+}
+
+QGraphicsPixmapItem* ImageViewerGraphicsScene::ImagePixmapItem() const {
+  return image_pixmap_item_;
+}
+
+ImageViewerWidget::ImageViewerWidget(QWidget* parent) : QWidget(parent) {
+  setWindowFlags(Qt::Window | Qt::WindowTitleHint |
+                 Qt::WindowMinimizeButtonHint | Qt::WindowMaximizeButtonHint |
+                 Qt::WindowCloseButtonHint);
+
   resize(parent->width() - 20, parent->height() - 20);
 
   QFont font;
@@ -39,13 +62,13 @@ ImageViewerWidget::ImageViewerWidget(QWidget* parent)
   grid_layout_ = new QGridLayout(this);
   grid_layout_->setContentsMargins(5, 5, 5, 5);
 
-  image_label_ = new QLabel(this);
-  image_scroll_area_ = new QScrollArea(this);
-  image_scroll_area_->setWidget(image_label_);
-  image_scroll_area_->setSizePolicy(QSizePolicy::Expanding,
-                                    QSizePolicy::Expanding);
+  graphics_view_ = new QGraphicsView();
+  graphics_view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-  grid_layout_->addWidget(image_scroll_area_, 1, 0);
+  graphics_view_->setScene(&graphics_scene_);
+  graphics_view_->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+
+  grid_layout_->addWidget(graphics_view_, 1, 0);
 
   button_layout_ = new QHBoxLayout();
 
@@ -63,68 +86,71 @@ ImageViewerWidget::ImageViewerWidget(QWidget* parent)
   connect(zoom_out_button, &QPushButton::released, this,
           &ImageViewerWidget::ZoomOut);
 
+  QPushButton* save_button = new QPushButton("Save image", this);
+  save_button->setFont(font);
+  button_layout_->addWidget(save_button);
+  connect(save_button, &QPushButton::released, this, &ImageViewerWidget::Save);
+
   grid_layout_->addLayout(button_layout_, 2, 0, Qt::AlignRight);
 }
 
+void ImageViewerWidget::resizeEvent(QResizeEvent* event) {
+  QWidget::resizeEvent(event);
+
+  graphics_view_->fitInView(graphics_scene_.sceneRect(), Qt::KeepAspectRatio);
+}
+
 void ImageViewerWidget::closeEvent(QCloseEvent* event) {
-  pixmap_ = QPixmap();
-  image_label_->clear();
+  graphics_scene_.ImagePixmapItem()->setPixmap(QPixmap());
 }
 
-void ImageViewerWidget::ShowBitmap(const Bitmap& bitmap, const bool rescale) {
-  ShowPixmap(QPixmap::fromImage(BitmapToQImageRGB(bitmap)), rescale);
+void ImageViewerWidget::ShowBitmap(const Bitmap& bitmap) {
+  ShowPixmap(QPixmap::fromImage(BitmapToQImageRGB(bitmap)));
 }
 
-void ImageViewerWidget::ShowPixmap(const QPixmap& pixmap, const bool rescale) {
-  pixmap_ = pixmap;
+void ImageViewerWidget::ShowPixmap(const QPixmap& pixmap) {
+  graphics_scene_.ImagePixmapItem()->setPixmap(pixmap);
+  graphics_scene_.setSceneRect(pixmap.rect());
 
   show();
+  graphics_view_->fitInView(graphics_scene_.sceneRect(), Qt::KeepAspectRatio);
+
   raise();
-
-  if (rescale) {
-    zoom_scale_ = 1.0;
-
-    const double kScrollbarMargin = 5;
-    const double scale_x = (image_scroll_area_->width() - kScrollbarMargin) /
-                           static_cast<double>(pixmap_.width());
-    const double scale_y = (image_scroll_area_->height() - kScrollbarMargin) /
-                           static_cast<double>(pixmap_.height());
-    const double scale = std::min(scale_x, scale_y);
-
-    Rescale(scale);
-  } else {
-    Rescale(1.0);
-  }
 }
 
-void ImageViewerWidget::ReadAndShow(const std::string& path,
-                                    const bool rescale) {
+void ImageViewerWidget::ReadAndShow(const std::string& path) {
   Bitmap bitmap;
   if (!bitmap.Read(path, true)) {
     std::cerr << "ERROR: Cannot read image at path " << path << std::endl;
   }
 
-  ShowBitmap(bitmap, rescale);
+  ShowBitmap(bitmap);
 }
 
-void ImageViewerWidget::Rescale(const double scale) {
-  if (pixmap_.isNull()) {
+void ImageViewerWidget::ZoomIn() {
+  graphics_view_->scale(kZoomFactor, kZoomFactor);
+}
+
+void ImageViewerWidget::ZoomOut() {
+  graphics_view_->scale(1.0 / kZoomFactor, 1.0 / kZoomFactor);
+}
+
+void ImageViewerWidget::Save() {
+  QString filter("PNG (*.png)");
+  const QString save_path =
+      QFileDialog::getSaveFileName(this, tr("Select destination..."), "",
+                                   "PNG (*.png);;JPEG (*.jpg);;BMP (*.bmp)",
+                                   &filter)
+          .toUtf8()
+          .constData();
+
+  // Selection canceled?
+  if (save_path == "") {
     return;
   }
 
-  zoom_scale_ *= scale;
-
-  const Qt::TransformationMode transform_mode =
-      zoom_scale_ > 1.0 ? Qt::FastTransformation : Qt::SmoothTransformation;
-  const int scaled_width =
-      static_cast<int>(std::round(zoom_scale_ * pixmap_.width()));
-  image_label_->setPixmap(pixmap_.scaledToWidth(scaled_width, transform_mode));
-  image_label_->adjustSize();
+  graphics_scene_.ImagePixmapItem()->pixmap().save(save_path);
 }
-
-void ImageViewerWidget::ZoomIn() { Rescale(kZoomFactor); }
-
-void ImageViewerWidget::ZoomOut() { Rescale(1.0 / kZoomFactor); }
 
 FeatureImageViewerWidget::FeatureImageViewerWidget(
     QWidget* parent, const std::string& switch_text)
@@ -169,8 +195,11 @@ void FeatureImageViewerWidget::ReadAndShowWithKeypoints(
   DrawKeypoints(&image2_, keypoints_tri, Qt::magenta);
   DrawKeypoints(&image2_, keypoints_not_tri, Qt::red);
 
-  switch_state_ = true;
-  ShowPixmap(image2_, true);
+  if (switch_state_) {
+    ShowPixmap(image2_);
+  } else {
+    ShowPixmap(image1_);
+  }
 }
 
 void FeatureImageViewerWidget::ReadAndShowWithMatches(
@@ -191,26 +220,30 @@ void FeatureImageViewerWidget::ReadAndShowWithMatches(
   image1_ = ShowImagesSideBySide(image1, image2);
   image2_ = DrawMatches(image1, image2, keypoints1, keypoints2, matches);
 
-  switch_state_ = true;
-  ShowPixmap(image2_, true);
+  if (switch_state_) {
+    ShowPixmap(image2_);
+  } else {
+    ShowPixmap(image1_);
+  }
 }
 
 void FeatureImageViewerWidget::ShowOrHide() {
   if (switch_state_) {
     switch_button_->setText(std::string("Show " + switch_text_).c_str());
-    ShowPixmap(image1_, false);
+    ShowPixmap(image1_);
     switch_state_ = false;
   } else {
     switch_button_->setText(std::string("Hide " + switch_text_).c_str());
-    ShowPixmap(image2_, false);
+    ShowPixmap(image2_);
     switch_state_ = true;
   }
 }
 
 DatabaseImageViewerWidget::DatabaseImageViewerWidget(
-    QWidget* parent, OpenGLWindow* opengl_window, OptionManager* options)
+    QWidget* parent, ModelViewerWidget* model_viewer_widget,
+    OptionManager* options)
     : FeatureImageViewerWidget(parent, "keypoints"),
-      opengl_window_(opengl_window),
+      model_viewer_widget_(model_viewer_widget),
       options_(options) {
   setWindowTitle("Image information");
 
@@ -233,64 +266,65 @@ DatabaseImageViewerWidget::DatabaseImageViewerWidget(
   table_widget_->verticalHeader()->setVisible(false);
   table_widget_->verticalHeader()->setDefaultSectionSize(18);
 
-  int row = 0;
+  int table_row = 0;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("image_id"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("image_id"));
   image_id_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, image_id_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, image_id_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("camera_id"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("camera_id"));
   camera_id_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, camera_id_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, camera_id_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("camera_model"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("camera_model"));
   camera_model_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, camera_model_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, camera_model_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("camera_params"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("camera_params"));
   camera_params_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, camera_params_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, camera_params_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("qw, qx, qy, qz"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("qw, qx, qy, qz"));
   qvec_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, qvec_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, qvec_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("tx, ty, ty"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("tx, ty, tz"));
   tvec_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, tvec_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, tvec_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("dims"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("dims"));
   dimensions_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, dimensions_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, dimensions_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("num_points2D"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("num_points2D"));
   num_points2D_item_ = new QTableWidgetItem();
   num_points2D_item_->setForeground(Qt::red);
-  table_widget_->setItem(row, 1, num_points2D_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, num_points2D_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("num_points3D"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("num_points3D"));
   num_points3D_item_ = new QTableWidgetItem();
   num_points3D_item_->setForeground(Qt::magenta);
-  table_widget_->setItem(row, 1, num_points3D_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, num_points3D_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("num_observations"));
+  table_widget_->setItem(table_row, 0,
+                         new QTableWidgetItem("num_observations"));
   num_obs_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, num_obs_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, num_obs_item_);
+  table_row += 1;
 
-  table_widget_->setItem(row, 0, new QTableWidgetItem("name"));
+  table_widget_->setItem(table_row, 0, new QTableWidgetItem("name"));
   name_item_ = new QTableWidgetItem();
-  table_widget_->setItem(row, 1, name_item_);
-  row += 1;
+  table_widget_->setItem(table_row, 1, name_item_);
+  table_row += 1;
 
   grid_layout_->addWidget(table_widget_, 0, 0);
 
@@ -302,14 +336,14 @@ DatabaseImageViewerWidget::DatabaseImageViewerWidget(
 }
 
 void DatabaseImageViewerWidget::ShowImageWithId(const image_t image_id) {
-  if (opengl_window_->images.count(image_id) == 0) {
+  if (model_viewer_widget_->images.count(image_id) == 0) {
     return;
   }
 
   image_id_ = image_id;
 
-  const Image& image = opengl_window_->images.at(image_id);
-  const Camera& camera = opengl_window_->cameras.at(image.CameraId());
+  const Image& image = model_viewer_widget_->images.at(image_id);
+  const Camera& camera = model_viewer_widget_->cameras.at(image.CameraId());
 
   image_id_item_->setText(QString::number(image_id));
   camera_id_item_->setText(QString::number(image.CameraId()));
@@ -363,10 +397,10 @@ void DatabaseImageViewerWidget::DeleteImage() {
       this, "", tr("Do you really want to delete this image?"),
       QMessageBox::Yes | QMessageBox::No);
   if (reply == QMessageBox::Yes) {
-    if (opengl_window_->reconstruction->ExistsImage(image_id_)) {
-      opengl_window_->reconstruction->DeRegisterImage(image_id_);
+    if (model_viewer_widget_->reconstruction->ExistsImage(image_id_)) {
+      model_viewer_widget_->reconstruction->DeRegisterImage(image_id_);
     }
-    opengl_window_->Update();
+    model_viewer_widget_->ReloadReconstruction();
   }
   hide();
 }

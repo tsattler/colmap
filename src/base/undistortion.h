@@ -1,23 +1,39 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_BASE_UNDISTORTION_H_
 #define COLMAP_SRC_BASE_UNDISTORTION_H_
 
 #include "base/reconstruction.h"
+#include "util/alignment.h"
 #include "util/bitmap.h"
 #include "util/threading.h"
 
@@ -34,6 +50,15 @@ struct UndistortCameraOptions {
 
   // Maximum image size in terms of width or height of the undistorted camera.
   int max_image_size = -1;
+
+  // The 4 factors in the range [0, 1] that define the ROI (region of interest)
+  // in original image. The bounding box pixel coordinates are calculated as
+  //    (roi_min_x * Width, roi_min_y * Height) and
+  //    (roi_max_x * Width, roi_max_y * Height).
+  double roi_min_x = 0.0;
+  double roi_min_y = 0.0;
+  double roi_max_x = 1.0;
+  double roi_max_y = 1.0;
 };
 
 // Undistort images and export undistorted cameras, as required by the
@@ -51,7 +76,7 @@ class COLMAPUndistorter : public Thread {
   void Undistort(const size_t reg_image_idx) const;
   void WritePatchMatchConfig() const;
   void WriteFusionConfig() const;
-  void WriteScript() const;
+  void WriteScript(const bool geometric) const;
 
   UndistortCameraOptions options_;
   std::string image_path_;
@@ -73,6 +98,10 @@ class PMVSUndistorter : public Thread {
   void Undistort(const size_t reg_image_idx) const;
   void WriteVisibilityData() const;
   void WriteOptionFile() const;
+  void WritePMVSScript() const;
+  void WriteCMVSPMVSScript() const;
+  void WriteCOLMAPScript(const bool geometric) const;
+  void WriteCMVSCOLMAPScript(const bool geometric) const;
 
   UndistortCameraOptions options_;
   std::string image_path_;
@@ -96,6 +125,27 @@ class CMPMVSUndistorter : public Thread {
   UndistortCameraOptions options_;
   std::string image_path_;
   std::string output_path_;
+  const Reconstruction& reconstruction_;
+};
+
+// Rectify stereo image pairs.
+class StereoImageRectifier : public Thread {
+ public:
+  StereoImageRectifier(
+      const UndistortCameraOptions& options,
+      const Reconstruction& reconstruction, const std::string& image_path,
+      const std::string& output_path,
+      const std::vector<std::pair<image_t, image_t>>& stereo_pairs);
+
+ private:
+  void Run();
+
+  void Rectify(const image_t image_id1, const image_t image_id2) const;
+
+  UndistortCameraOptions options_;
+  std::string image_path_;
+  std::string output_path_;
+  const std::vector<std::pair<image_t, image_t>>& stereo_pairs_;
   const Reconstruction& reconstruction_;
 };
 
@@ -131,6 +181,24 @@ void UndistortImage(const UndistortCameraOptions& options,
 // observations in their corresponding images.
 void UndistortReconstruction(const UndistortCameraOptions& options,
                              Reconstruction* reconstruction);
+
+// Compute stereo rectification homographies that transform two images,
+// such that corresponding pixels in one image lie on the same scanline in the
+// other image. The matrix Q transforms disparity values to world coordinates
+// as [x, y, disparity, 1] * Q = [X, Y, Z, 1] * w. Note that this function
+// assumes that the two cameras are already undistorted.
+void RectifyStereoCameras(const Camera& camera1, const Camera& camera2,
+                          const Eigen::Vector4d& qvec,
+                          const Eigen::Vector3d& tvec, Eigen::Matrix3d* H1,
+                          Eigen::Matrix3d* H2, Eigen::Matrix4d* Q);
+
+// Rectify and undistort the stereo image pair using the given geometry.
+void RectifyAndUndistortStereoImages(
+    const UndistortCameraOptions& options, const Bitmap& distorted_image1,
+    const Bitmap& distorted_image2, const Camera& distorted_camera1,
+    const Camera& distorted_camera2, const Eigen::Vector4d& qvec,
+    const Eigen::Vector3d& tvec, Bitmap* undistorted_image1,
+    Bitmap* undistorted_image2, Camera* undistorted_camera, Eigen::Matrix4d* Q);
 
 }  // namespace colmap
 

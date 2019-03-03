@@ -1,22 +1,36 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
-#define BOOST_TEST_MAIN
-#define BOOST_TEST_MODULE "base/warp"
-#include <boost/test/unit_test.hpp>
+#define TEST_NAME "base/warp"
+#include "util/testing.h"
 
 #include "base/warp.h"
 #include "util/random.h"
@@ -38,17 +52,35 @@ void GenerateRandomBitmap(const int width, const int height, const bool as_rgb,
   }
 }
 
+// Check that the two bitmaps are equal, ignoring a 1px boundary.
 void CheckBitmapsEqual(const Bitmap& bitmap1, const Bitmap& bitmap2) {
   BOOST_REQUIRE_EQUAL(bitmap1.IsGrey(), bitmap2.IsGrey());
   BOOST_REQUIRE_EQUAL(bitmap1.IsRGB(), bitmap2.IsRGB());
   BOOST_REQUIRE_EQUAL(bitmap1.Width(), bitmap2.Width());
   BOOST_REQUIRE_EQUAL(bitmap1.Height(), bitmap2.Height());
-  for (int x = 0; x < bitmap1.Width(); ++x) {
-    for (int y = 0; y < bitmap1.Height(); ++y) {
+  for (int x = 1; x < bitmap1.Width() - 1; ++x) {
+    for (int y = 1; y < bitmap1.Height() - 1; ++y) {
       BitmapColor<uint8_t> color1;
       BitmapColor<uint8_t> color2;
       BOOST_CHECK(bitmap1.GetPixel(x, y, &color1));
-      BOOST_CHECK(bitmap1.GetPixel(x, y, &color2));
+      BOOST_CHECK(bitmap2.GetPixel(x, y, &color2));
+      BOOST_CHECK_EQUAL(color1, color2);
+    }
+  }
+}
+
+// Check that the two bitmaps are equal, ignoring a 1px boundary.
+void CheckBitmapsTransposed(const Bitmap& bitmap1, const Bitmap& bitmap2) {
+  BOOST_REQUIRE_EQUAL(bitmap1.IsGrey(), bitmap2.IsGrey());
+  BOOST_REQUIRE_EQUAL(bitmap1.IsRGB(), bitmap2.IsRGB());
+  BOOST_REQUIRE_EQUAL(bitmap1.Width(), bitmap2.Width());
+  BOOST_REQUIRE_EQUAL(bitmap1.Height(), bitmap2.Height());
+  for (int x = 1; x < bitmap1.Width() - 1; ++x) {
+    for (int y = 1; y < bitmap1.Height() - 1; ++y) {
+      BitmapColor<uint8_t> color1;
+      BitmapColor<uint8_t> color2;
+      BOOST_CHECK(bitmap1.GetPixel(x, y, &color1));
+      BOOST_CHECK(bitmap2.GetPixel(y, x, &color2));
       BOOST_CHECK_EQUAL(color1, color2);
     }
   }
@@ -89,16 +121,102 @@ BOOST_AUTO_TEST_CASE(TestShiftedCameras) {
       BitmapColor<uint8_t> color;
       BOOST_CHECK(target_image_gray.GetPixel(x, y, &color));
       if (x >= 50) {
-        BOOST_CHECK_EQUAL(color, BitmapColor<uint8_t>(0, 0, 0));
+        BOOST_CHECK_EQUAL(color, BitmapColor<uint8_t>(0));
       } else {
         BitmapColor<uint8_t> source_color;
         if (source_image_gray.GetPixel(x + 50, y, &source_color) &&
-            color != BitmapColor<uint8_t>(0, 0, 0)) {
+            color != BitmapColor<uint8_t>(0)) {
           BOOST_CHECK_EQUAL(color, source_color);
         }
       }
     }
   }
+}
+
+BOOST_AUTO_TEST_CASE(TestWarpImageWithHomographyIdentity) {
+  Bitmap source_image_gray;
+  GenerateRandomBitmap(100, 100, false, &source_image_gray);
+  Bitmap target_image_gray;
+  target_image_gray.Allocate(100, 100, false);
+  WarpImageWithHomography(Eigen::Matrix3d::Identity(), source_image_gray,
+                          &target_image_gray);
+  CheckBitmapsEqual(source_image_gray, target_image_gray);
+
+  Bitmap source_image_rgb;
+  GenerateRandomBitmap(100, 100, true, &source_image_rgb);
+  Bitmap target_image_rgb;
+  target_image_rgb.Allocate(100, 100, true);
+  WarpImageWithHomography(Eigen::Matrix3d::Identity(), source_image_rgb,
+                          &target_image_rgb);
+  CheckBitmapsEqual(source_image_rgb, target_image_rgb);
+}
+
+BOOST_AUTO_TEST_CASE(TestWarpImageWithHomographyTransposed) {
+  Eigen::Matrix3d H;
+  H << 0, 1, 0, 1, 0, 0, 0, 0, 1;
+
+  Bitmap source_image_gray;
+  GenerateRandomBitmap(100, 100, false, &source_image_gray);
+  Bitmap target_image_gray;
+  target_image_gray.Allocate(100, 100, false);
+  WarpImageWithHomography(H, source_image_gray, &target_image_gray);
+  CheckBitmapsTransposed(source_image_gray, target_image_gray);
+
+  Bitmap source_image_rgb;
+  GenerateRandomBitmap(100, 100, true, &source_image_rgb);
+  Bitmap target_image_rgb;
+  target_image_rgb.Allocate(100, 100, true);
+  WarpImageWithHomography(H, source_image_rgb, &target_image_rgb);
+  CheckBitmapsTransposed(source_image_rgb, target_image_rgb);
+}
+
+BOOST_AUTO_TEST_CASE(TestWarpImageWithHomographyBetweenCamerasIdentity) {
+  Camera source_camera;
+  source_camera.InitializeWithName("PINHOLE", 1, 100, 100);
+  Camera target_camera = source_camera;
+
+  Bitmap source_image_gray;
+  GenerateRandomBitmap(100, 100, false, &source_image_gray);
+  Bitmap target_image_gray;
+  target_image_gray.Allocate(100, 100, false);
+  WarpImageWithHomographyBetweenCameras(Eigen::Matrix3d::Identity(),
+                                        source_camera, target_camera,
+                                        source_image_gray, &target_image_gray);
+  CheckBitmapsEqual(source_image_gray, target_image_gray);
+
+  Bitmap source_image_rgb;
+  GenerateRandomBitmap(100, 100, true, &source_image_rgb);
+  Bitmap target_image_rgb;
+  target_image_rgb.Allocate(100, 100, true);
+  WarpImageWithHomographyBetweenCameras(Eigen::Matrix3d::Identity(),
+                                        source_camera, target_camera,
+                                        source_image_rgb, &target_image_rgb);
+  CheckBitmapsEqual(source_image_rgb, target_image_rgb);
+}
+
+BOOST_AUTO_TEST_CASE(TestWarpImageWithHomographyBetweenCamerasTransposed) {
+  Camera source_camera;
+  source_camera.InitializeWithName("PINHOLE", 1, 100, 100);
+  Camera target_camera = source_camera;
+
+  Eigen::Matrix3d H;
+  H << 0, 1, 0, 1, 0, 0, 0, 0, 1;
+
+  Bitmap source_image_gray;
+  GenerateRandomBitmap(100, 100, false, &source_image_gray);
+  Bitmap target_image_gray;
+  target_image_gray.Allocate(100, 100, false);
+  WarpImageWithHomographyBetweenCameras(H, source_camera, target_camera,
+                                        source_image_gray, &target_image_gray);
+  CheckBitmapsTransposed(source_image_gray, target_image_gray);
+
+  Bitmap source_image_rgb;
+  GenerateRandomBitmap(100, 100, true, &source_image_rgb);
+  Bitmap target_image_rgb;
+  target_image_rgb.Allocate(100, 100, true);
+  WarpImageWithHomographyBetweenCameras(H, source_camera, target_camera,
+                                        source_image_rgb, &target_image_rgb);
+  CheckBitmapsTransposed(source_image_rgb, target_image_rgb);
 }
 
 BOOST_AUTO_TEST_CASE(TestResampleImageBilinear) {

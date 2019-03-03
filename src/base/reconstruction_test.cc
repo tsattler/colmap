@@ -1,31 +1,48 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
-#define BOOST_TEST_MAIN
-#define BOOST_TEST_MODULE "base/reconstruction"
-#include <boost/test/unit_test.hpp>
+#define TEST_NAME "base/reconstruction"
+#include "util/testing.h"
 
+#include "base/camera_models.h"
+#include "base/correspondence_graph.h"
 #include "base/pose.h"
 #include "base/reconstruction.h"
+#include "base/similarity_transform.h"
 
 using namespace colmap;
 
 void GenerateReconstruction(const image_t num_images,
                             Reconstruction* reconstruction,
-                            SceneGraph* scene_graph) {
+                            CorrespondenceGraph* correspondence_graph) {
   const size_t kNumPoints2D = 10;
 
   Camera camera;
@@ -42,10 +59,10 @@ void GenerateReconstruction(const image_t num_images,
         std::vector<Eigen::Vector2d>(kNumPoints2D, Eigen::Vector2d::Zero()));
     reconstruction->AddImage(image);
     reconstruction->RegisterImage(image_id);
-    scene_graph->AddImage(image_id, kNumPoints2D);
+    correspondence_graph->AddImage(image_id, kNumPoints2D);
   }
 
-  reconstruction->SetUp(scene_graph);
+  reconstruction->SetUp(correspondence_graph);
 }
 
 BOOST_AUTO_TEST_CASE(TestEmpty) {
@@ -110,8 +127,8 @@ BOOST_AUTO_TEST_CASE(TestAddPoint3D) {
 
 BOOST_AUTO_TEST_CASE(TestAddObservation) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(1, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(1, &reconstruction, &correspondence_graph);
   Track track;
   track.AddElement(1, 0);
   const point3D_t point3D_id =
@@ -129,8 +146,8 @@ BOOST_AUTO_TEST_CASE(TestAddObservation) {
 
 BOOST_AUTO_TEST_CASE(TestMergePoints3D) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d(0, 0, 0), Track());
   reconstruction.AddObservation(point3D_id1, TrackElement(1, 0));
@@ -165,8 +182,8 @@ BOOST_AUTO_TEST_CASE(TestMergePoints3D) {
 
 BOOST_AUTO_TEST_CASE(TestDeletePoint3D) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(1, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(1, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
   reconstruction.AddObservation(point3D_id, TrackElement(1, 0));
@@ -177,8 +194,8 @@ BOOST_AUTO_TEST_CASE(TestDeletePoint3D) {
 
 BOOST_AUTO_TEST_CASE(TestDeleteObservation) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id =
       reconstruction.AddPoint3D(Eigen::Vector3d(0, 0, 0), Track());
   reconstruction.AddObservation(point3D_id, TrackElement(1, 0));
@@ -195,8 +212,8 @@ BOOST_AUTO_TEST_CASE(TestDeleteObservation) {
 
 BOOST_AUTO_TEST_CASE(TestRegisterImage) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(1, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(1, &reconstruction, &correspondence_graph);
   BOOST_CHECK_EQUAL(reconstruction.NumRegImages(), 1);
   BOOST_CHECK_EQUAL(reconstruction.Image(1).IsRegistered(), true);
   BOOST_CHECK(reconstruction.IsImageRegistered(1));
@@ -212,8 +229,8 @@ BOOST_AUTO_TEST_CASE(TestRegisterImage) {
 
 BOOST_AUTO_TEST_CASE(TestNormalize) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(3, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(3, &reconstruction, &correspondence_graph);
   reconstruction.Image(1).Tvec(2) = -10.0;
   reconstruction.Image(2).Tvec(2) = 0.0;
   reconstruction.Image(3).Tvec(2) = 10.0;
@@ -270,14 +287,14 @@ BOOST_AUTO_TEST_CASE(TestNormalize) {
 
 BOOST_AUTO_TEST_CASE(TestTransform) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(3, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(3, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id =
       reconstruction.AddPoint3D(Eigen::Vector3d(1, 1, 1), Track());
   reconstruction.AddObservation(point3D_id, TrackElement(1, 1));
   reconstruction.AddObservation(point3D_id, TrackElement(2, 1));
-  reconstruction.Transform(2, ComposeIdentityQuaternion(),
-                           Eigen::Vector3d(0, 1, 2));
+  reconstruction.Transform(SimilarityTransform3(2, ComposeIdentityQuaternion(),
+                                                Eigen::Vector3d(0, 1, 2)));
   BOOST_CHECK_EQUAL(reconstruction.Image(1).ProjectionCenter(),
                     Eigen::Vector3d(0, 1, 2));
   BOOST_CHECK_EQUAL(reconstruction.Point3D(point3D_id).XYZ(),
@@ -286,8 +303,8 @@ BOOST_AUTO_TEST_CASE(TestTransform) {
 
 BOOST_AUTO_TEST_CASE(TestFindImageWithName) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   BOOST_CHECK_EQUAL(reconstruction.FindImageWithName("image1"),
                     &reconstruction.Image(1));
   BOOST_CHECK_EQUAL(reconstruction.FindImageWithName("image2"),
@@ -297,8 +314,8 @@ BOOST_AUTO_TEST_CASE(TestFindImageWithName) {
 
 BOOST_AUTO_TEST_CASE(TestFilterPoints3D) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
   BOOST_CHECK_EQUAL(reconstruction.NumPoints3D(), 1);
@@ -340,8 +357,8 @@ BOOST_AUTO_TEST_CASE(TestFilterPoints3D) {
 
 BOOST_AUTO_TEST_CASE(TestFilterPoints3DInImages) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
   BOOST_CHECK_EQUAL(reconstruction.NumPoints3D(), 1);
@@ -382,8 +399,8 @@ BOOST_AUTO_TEST_CASE(TestFilterPoints3DInImages) {
 
 BOOST_AUTO_TEST_CASE(TestFilterAllPoints) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
   BOOST_CHECK_EQUAL(reconstruction.NumPoints3D(), 1);
   reconstruction.FilterAllPoints3D(0.0, 0.0);
@@ -413,8 +430,8 @@ BOOST_AUTO_TEST_CASE(TestFilterAllPoints) {
 
 BOOST_AUTO_TEST_CASE(TestFilterObservationsWithNegativeDepth) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d(0, 0, 1), Track());
   BOOST_CHECK_EQUAL(reconstruction.NumPoints3D(), 1);
@@ -437,8 +454,8 @@ BOOST_AUTO_TEST_CASE(TestFilterObservationsWithNegativeDepth) {
 
 BOOST_AUTO_TEST_CASE(TestFilterImages) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(4, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(4, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
   reconstruction.AddObservation(point3D_id1, TrackElement(1, 0));
@@ -455,8 +472,8 @@ BOOST_AUTO_TEST_CASE(TestFilterImages) {
 
 BOOST_AUTO_TEST_CASE(TestComputeNumObservations) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
   BOOST_CHECK_EQUAL(reconstruction.ComputeNumObservations(), 0);
@@ -470,8 +487,8 @@ BOOST_AUTO_TEST_CASE(TestComputeNumObservations) {
 
 BOOST_AUTO_TEST_CASE(TestComputeMeanTrackLength) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   BOOST_CHECK_EQUAL(reconstruction.ComputeMeanTrackLength(), 0);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
@@ -486,8 +503,8 @@ BOOST_AUTO_TEST_CASE(TestComputeMeanTrackLength) {
 
 BOOST_AUTO_TEST_CASE(TestComputeMeanObservationsPerRegImage) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   BOOST_CHECK_EQUAL(reconstruction.ComputeMeanObservationsPerRegImage(), 0);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());
@@ -502,8 +519,8 @@ BOOST_AUTO_TEST_CASE(TestComputeMeanObservationsPerRegImage) {
 
 BOOST_AUTO_TEST_CASE(TestComputeMeanReprojectionError) {
   Reconstruction reconstruction;
-  SceneGraph scene_graph;
-  GenerateReconstruction(2, &reconstruction, &scene_graph);
+  CorrespondenceGraph correspondence_graph;
+  GenerateReconstruction(2, &reconstruction, &correspondence_graph);
   BOOST_CHECK_EQUAL(reconstruction.ComputeMeanReprojectionError(), 0);
   const point3D_t point3D_id1 =
       reconstruction.AddPoint3D(Eigen::Vector3d::Random(), Track());

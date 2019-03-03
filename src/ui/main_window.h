@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_UI_MAIN_WINDOW_H_
 #define COLMAP_SRC_UI_MAIN_WINDOW_H_
@@ -22,17 +37,18 @@
 #include <QtWidgets>
 
 #include "base/reconstruction.h"
-#include "sfm/controllers.h"
+#include "controllers/incremental_mapper.h"
+#include "ui/automatic_reconstruction_widget.h"
 #include "ui/bundle_adjustment_widget.h"
 #include "ui/database_management_widget.h"
+#include "ui/dense_reconstruction_widget.h"
 #include "ui/feature_extraction_widget.h"
 #include "ui/feature_matching_widget.h"
 #include "ui/license_widget.h"
 #include "ui/log_widget.h"
 #include "ui/match_matrix_widget.h"
-#include "ui/multi_view_stereo_widget.h"
+#include "ui/model_viewer_widget.h"
 #include "ui/project_widget.h"
-#include "ui/opengl_window.h"
 #include "ui/reconstruction_manager_widget.h"
 #include "ui/reconstruction_options_widget.h"
 #include "ui/reconstruction_stats_widget.h"
@@ -44,19 +60,17 @@ namespace colmap {
 
 class MainWindow : public QMainWindow {
  public:
-  MainWindow(const OptionManager& options);
+  explicit MainWindow(const OptionManager& options);
 
   const ReconstructionManager& GetReconstructionManager() const;
 
  protected:
-  void showEvent(QShowEvent* event);
   void closeEvent(QCloseEvent* event);
 
-  // Custom event that is called after `showEvent` by a timer.
-  void afterShowEvent();
-
  private:
-  friend class MultiViewStereoWidget;
+  friend class AutomaticReconstructionWidget;
+  friend class BundleAdjustmentWidget;
+  friend class DenseReconstructionWidget;
 
   void CreateWidgets();
   void CreateActions();
@@ -72,14 +86,16 @@ class MainWindow : public QMainWindow {
   void ProjectSaveAs();
   void Import();
   void ImportFrom();
-  void ImportFusedPoints(const std::vector<mvs::FusedPoint>& points);
   void Export();
   void ExportAll();
   void ExportAs();
+  void ExportAsText();
 
   void FeatureExtraction();
   void FeatureMatching();
   void DatabaseManagement();
+
+  void AutomaticReconstruction();
 
   void ReconstructionStart();
   void ReconstructionStep();
@@ -91,7 +107,7 @@ class MainWindow : public QMainWindow {
   bool ReconstructionOverwrite();
 
   void BundleAdjustment();
-  void MultiViewStereo();
+  void DenseReconstruction();
 
   void Render();
   void RenderNow();
@@ -112,6 +128,8 @@ class MainWindow : public QMainWindow {
   void MatchMatrix();
   void ShowLog();
   void ExtractColors();
+
+  void SetOptions();
   void ResetOptions();
 
   void About();
@@ -131,19 +149,17 @@ class MainWindow : public QMainWindow {
   ReconstructionManager reconstruction_manager_;
   std::unique_ptr<IncrementalMapperController> mapper_controller_;
 
-  OpenGLWindow* opengl_window_;
-
   Timer timer_;
 
-  QTimer* after_show_event_timer_;
-
+  ModelViewerWidget* model_viewer_widget_;
   ProjectWidget* project_widget_;
   FeatureExtractionWidget* feature_extraction_widget_;
   FeatureMatchingWidget* feature_matching_widget_;
   DatabaseManagementWidget* database_management_widget_;
+  AutomaticReconstructionWidget* automatic_reconstruction_widget_;
   ReconstructionOptionsWidget* reconstruction_options_widget_;
   BundleAdjustmentWidget* bundle_adjustment_widget_;
-  MultiViewStereoWidget* multi_view_stereo_widget_;
+  DenseReconstructionWidget* dense_reconstruction_widget_;
   RenderOptionsWidget* render_options_widget_;
   LogWidget* log_widget_;
   UndistortionWidget* undistortion_widget_;
@@ -174,11 +190,14 @@ class MainWindow : public QMainWindow {
   QAction* action_export_;
   QAction* action_export_all_;
   QAction* action_export_as_;
+  QAction* action_export_as_text_;
   QAction* action_quit_;
 
   QAction* action_feature_extraction_;
   QAction* action_feature_matching_;
   QAction* action_database_management_;
+
+  QAction* action_automatic_reconstruction_;
 
   QAction* action_reconstruction_start_;
   QAction* action_reconstruction_step_;
@@ -189,7 +208,7 @@ class MainWindow : public QMainWindow {
   QAction* action_reconstruction_options_;
 
   QAction* action_bundle_adjustment_;
-  QAction* action_multi_view_stereo_;
+  QAction* action_dense_reconstruction_;
 
   QAction* action_render_;
   QAction* action_render_now_;
@@ -204,6 +223,7 @@ class MainWindow : public QMainWindow {
   QAction* action_grab_movie_;
   QAction* action_undistort_;
   QAction* action_extract_colors_;
+  QAction* action_set_options_;
   QAction* action_reset_options_;
 
   QAction* action_about_;

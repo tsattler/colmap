@@ -1,26 +1,39 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
-#define BOOST_TEST_MAIN
-#define BOOST_TEST_MODULE "mvs/gpu_mat_test"
-#include <boost/test/unit_test.hpp>
+#define TEST_NAME "mvs/gpu_mat_test"
+#include "util/testing.h"
 
 #include "mvs/gpu_mat.h"
 #include "mvs/gpu_mat_prng.h"
-#include "util/logging.h"
 #include "util/math.h"
 
 using namespace colmap;
@@ -33,7 +46,8 @@ BOOST_AUTO_TEST_CASE(TestFillWithVector) {
 }
 
 template <typename T>
-void TestTransposeImage(const int width, const int height, const int depth) {
+void TestTransposeImage(const size_t width, const size_t height,
+                        const size_t depth) {
   GpuMat<T> array(width, height, depth);
 
   GpuMatPRNG prng_array(width, height);
@@ -61,11 +75,11 @@ void TestTransposeImage(const int width, const int height, const int depth) {
 }
 
 BOOST_AUTO_TEST_CASE(TestTranspose) {
-  for (int w = 1; w <= 5; ++w) {
-    for (int h = 1; h <= 5; ++h) {
-      for (int d = 1; d <= 3; ++d) {
-        const int width = 20 * w;
-        const int height = 20 * h;
+  for (size_t w = 1; w <= 5; ++w) {
+    for (size_t h = 1; h <= 5; ++h) {
+      for (size_t d = 1; d <= 3; ++d) {
+        const size_t width = 20 * w;
+        const size_t height = 20 * h;
         TestTransposeImage<int8_t>(width, height, d);
         TestTransposeImage<int16_t>(width, height, d);
         TestTransposeImage<int32_t>(width, height, d);
@@ -78,8 +92,8 @@ BOOST_AUTO_TEST_CASE(TestTranspose) {
 }
 
 template <typename T>
-void TestFlipHorizontalImage(const int width, const int height,
-                             const int depth) {
+void TestFlipHorizontalImage(const size_t width, const size_t height,
+                             const size_t depth) {
   GpuMat<T> array(width, height, depth);
 
   GpuMatPRNG prng_array(width, height);
@@ -106,11 +120,11 @@ void TestFlipHorizontalImage(const int width, const int height,
 }
 
 BOOST_AUTO_TEST_CASE(TestFlipHorizontal) {
-  for (int w = 1; w <= 5; ++w) {
-    for (int h = 1; h <= 5; ++h) {
-      for (int d = 1; d <= 3; ++d) {
-        const int width = 20 * w;
-        const int height = 20 * h;
+  for (size_t w = 1; w <= 5; ++w) {
+    for (size_t h = 1; h <= 5; ++h) {
+      for (size_t d = 1; d <= 3; ++d) {
+        const size_t width = 20 * w;
+        const size_t height = 20 * h;
         TestFlipHorizontalImage<int8_t>(width, height, d);
         TestFlipHorizontalImage<int16_t>(width, height, d);
         TestFlipHorizontalImage<int32_t>(width, height, d);
@@ -123,7 +137,8 @@ BOOST_AUTO_TEST_CASE(TestFlipHorizontal) {
 }
 
 template <typename T>
-void TestRotateImage(const int width, const int height, const int depth) {
+void TestRotateImage(const size_t width, const size_t height,
+                     const size_t depth) {
   GpuMat<T> array(width, height, depth);
 
   GpuMatPRNG prng_array(width, height);
@@ -144,10 +159,10 @@ void TestRotateImage(const int width, const int height, const int depth) {
   for (size_t r = 0; r < height; ++r) {
     for (size_t c = 0; c < width; ++c) {
       for (size_t d = 0; d < depth; ++d) {
-        const int rotc =
+        const size_t rotc =
             std::round(std::cos(angle) * (c - arrayCenterH) -
                        std::sin(angle) * (r - arrayCenterV) + arrayCenterV);
-        const int rotr =
+        const size_t rotr =
             std::round(std::sin(angle) * (c - arrayCenterH) +
                        std::cos(angle) * (r - arrayCenterV) + arrayCenterH);
         BOOST_CHECK_EQUAL(
@@ -159,11 +174,11 @@ void TestRotateImage(const int width, const int height, const int depth) {
 }
 
 BOOST_AUTO_TEST_CASE(TestRotate) {
-  for (int w = 1; w <= 5; ++w) {
-    for (int h = 1; h <= 5; ++h) {
-      for (int d = 1; d <= 3; ++d) {
-        const int width = 20 * w;
-        const int height = 20 * h;
+  for (size_t w = 1; w <= 5; ++w) {
+    for (size_t h = 1; h <= 5; ++h) {
+      for (size_t d = 1; d <= 3; ++d) {
+        const size_t width = 20 * w;
+        const size_t height = 20 * h;
         TestRotateImage<int8_t>(width, height, d);
         TestRotateImage<int16_t>(width, height, d);
         TestRotateImage<int32_t>(width, height, d);

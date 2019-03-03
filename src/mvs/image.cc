@@ -1,33 +1,49 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "mvs/image.h"
 
 #include <Eigen/Core>
 
 #include "base/projection.h"
-#include "util/bitmap.h"
 #include "util/logging.h"
 
 namespace colmap {
 namespace mvs {
 
-Image::Image(const std::string& path, const float* K, const float* R,
-             const float* T)
-    : path_(path) {
+Image::Image() {}
+
+Image::Image(const std::string& path, const size_t width, const size_t height,
+             const float* K, const float* R, const float* T)
+    : path_(path), width_(width), height_(height) {
   memcpy(K_, K, 9 * sizeof(float));
   memcpy(R_, R, 9 * sizeof(float));
   memcpy(T_, T, 3 * sizeof(float));
@@ -35,39 +51,42 @@ Image::Image(const std::string& path, const float* K, const float* R,
   ComposeInverseProjectionMatrix(K_, R_, T_, inv_P_);
 }
 
-void Image::Read(const bool as_rgb) {
-  CHECK(bitmap_.Read(path_, as_rgb)) << path_;
+void Image::SetBitmap(const Bitmap& bitmap) {
+  bitmap_ = bitmap;
+  CHECK_EQ(width_, bitmap_.Width());
+  CHECK_EQ(height_, bitmap_.Height());
 }
 
 void Image::Rescale(const float factor) { Rescale(factor, factor); }
 
 void Image::Rescale(const float factor_x, const float factor_y) {
-  if (bitmap_.Width() * bitmap_.Height() == 0) {
-    return;
+  const size_t new_width = std::round(width_ * factor_x);
+  const size_t new_height = std::round(height_ * factor_y);
+
+  if (bitmap_.Data() != nullptr) {
+    bitmap_.Rescale(new_width, new_height);
   }
 
-  const size_t new_width = std::round(bitmap_.Width() * factor_x);
-  const size_t new_height = std::round(bitmap_.Height() * factor_y);
-  const float scale_x = new_width / static_cast<float>(bitmap_.Width());
-  const float scale_y = new_height / static_cast<float>(bitmap_.Height());
-  bitmap_.Rescale(new_width, new_height);
+  const float scale_x = new_width / static_cast<float>(width_);
+  const float scale_y = new_height / static_cast<float>(height_);
   K_[0] *= scale_x;
   K_[2] *= scale_x;
   K_[4] *= scale_y;
   K_[5] *= scale_y;
   ComposeProjectionMatrix(K_, R_, T_, P_);
   ComposeInverseProjectionMatrix(K_, R_, T_, inv_P_);
+
+  width_ = new_width;
+  height_ = new_height;
 }
 
 void Image::Downsize(const size_t max_width, const size_t max_height) {
-  if (static_cast<size_t>(bitmap_.Width()) <= max_width &&
-      static_cast<size_t>(bitmap_.Height()) <= max_height) {
+  if (width_ <= max_width && height_ <= max_height) {
     return;
   }
-  const float factor_x = static_cast<float>(max_width) / bitmap_.Width();
-  const float factor_y = static_cast<float>(max_height) / bitmap_.Height();
-  const float factor = std::min(factor_x, factor_y);
-  Rescale(factor);
+  const float factor_x = static_cast<float>(max_width) / width_;
+  const float factor_y = static_cast<float>(max_height) / height_;
+  Rescale(std::min(factor_x, factor_y));
 }
 
 void ComputeRelativePose(const float R1[9], const float T1[3],

@@ -1,22 +1,36 @@
-# Hide Qt warnings
-if(POLICY CMP0020)
-    cmake_policy(SET CMP0020 OLD)
-endif()
 if(POLICY CMP0043)
-    cmake_policy(SET CMP0043 OLD)
-endif()
-if(POLICY CMP0054)
-    cmake_policy(SET CMP0054 OLD)
+    cmake_policy(SET CMP0043 NEW)
 endif()
 
-if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+if(POLICY CMP0054)
+    cmake_policy(SET CMP0054 NEW)
+endif()
+
+# Determine project compiler.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     set(IS_MSVC TRUE)
 endif()
-if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(IS_GNU TRUE)
 endif()
-if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
     set(IS_CLANG TRUE)
+endif()
+
+# Determine project architecture.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "[ix].?86|amd64|AMD64")
+    set(IS_X86 TRUE)
+endif()
+
+# Determine project operating system.
+string(REGEX MATCH "Linux" IS_LINUX ${CMAKE_SYSTEM_NAME})
+string(REGEX MATCH "DragonFly|BSD" IS_BSD ${CMAKE_SYSTEM_NAME})
+string(REGEX MATCH "SunOS" IS_SOLARIS ${CMAKE_SYSTEM_NAME})
+if(WIN32)
+    SET(IS_WINDOWS TRUE BOOL INTERNAL)
+endif()
+if(APPLE)
+    SET(IS_MACOS TRUE BOOL INTERNAL)
 endif()
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
@@ -25,155 +39,72 @@ if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug"
     set(IS_DEBUG TRUE)
 endif()
 
-# Enable solution folders
+# Enable solution folders.
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_TARGETS_ROOT_FOLDER "cmake")
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER
-    ${CMAKE_TARGETS_ROOT_FOLDER})
+             ${CMAKE_TARGETS_ROOT_FOLDER})
 set(COLMAP_TARGETS_ROOT_FOLDER "colmap_targets")
-set(COLMAP_SRC_ROOT_FOLDER "colmap_src")
+set(COLMAP_SRC_ROOT_FOLDER "colmap_sources")
 
-# Remove the default warning level set by CMake so that later code can allow
-# the user to specify a custom warning level.
-set(REMOVED_WARNING_LEVEL FALSE)
-if(IS_MSVC)
-    # CXX Flags
-    if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
-        string(REGEX REPLACE "/W[0-4]" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-        set(REMOVED_WARNING_LEVEL TRUE)
-    elseif(CMAKE_CXX_FLAGS MATCHES "/Wall")
-        string(REGEX REPLACE "/Wall" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-        set(REMOVED_WARNING_LEVEL TRUE)
-    endif()
-    # C Flags
-    if(CMAKE_C_FLAGS MATCHES "/W[0-4]")
-        string(REGEX REPLACE "/W[0-4]" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-        set(REMOVED_WARNING_LEVEL TRUE)
-    elseif(CMAKE_C_FLAGS MATCHES "/Wall")
-        string(REGEX REPLACE "/Wall" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-        set(REMOVED_WARNING_LEVEL TRUE)
-    endif()
-elseif(IS_GNU OR IS_CLANG)
-    # CXX Flags
-    if(CMAKE_CXX_FLAGS MATCHES "-Wall")
-        string(REGEX REPLACE "-Wall" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-        set(REMOVED_WARNING_LEVEL TRUE)
-    endif()
-    # C Flags
-    if(CMAKE_C_FLAGS MATCHES "-Wall")
-        string(REGEX REPLACE "-Wall" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-        set(REMOVED_WARNING_LEVEL TRUE)
-    endif()
-else()
-    message(WARNING "Unsupported compiler. Please update CMakeLists.txt")
-endif()
-if(REMOVED_WARNING_LEVEL)
-    message("Removed warning level from default CMAKE_CXX_FLAGS.")
-    set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} CACHE STRING
-        "Flags used by the compiler during all build types." FORCE)
-    set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} CACHE STRING
-        "Flags used by the compiler during all build types." FORCE)
-endif()
+# This macro will search for source files in a given directory, will add them
+# to a source group (folder within a project), and will then return paths to
+# each of the found files. The usage of the macro is as follows:
+# COLMAP_ADD_SOURCE_DIR(
+#     <source directory to search>
+#     <output variable with found source files>
+#     <search expressions such as *.h *.cc>)
+macro(COLMAP_ADD_SOURCE_DIR SRC_DIR SRC_VAR)
+    # Create the list of expressions to be used in the search.
+    set(GLOB_EXPRESSIONS "")
+    foreach(ARG ${ARGN})
+        list(APPEND GLOB_EXPRESSIONS ${SRC_DIR}/${ARG})
+    endforeach()
+    # Perform the search for the source files.
+    file(GLOB ${SRC_VAR} RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+         ${GLOB_EXPRESSIONS})
+    # Create the source group.
+    string(REPLACE "/" "\\" GROUP_NAME ${SRC_DIR})
+    source_group(${GROUP_NAME} FILES ${${SRC_VAR}})
+    # Clean-up.
+    unset(GLOB_EXPRESSIONS)
+    unset(ARG)
+    unset(GROUP_NAME)
+endmacro(COLMAP_ADD_SOURCE_DIR)
 
-# Construct a list of the possible warning levels that the user can set.
-set(COMPILER_DEFAULT_WARNING_LEVEL "<compiler default>")
-if(IS_MSVC)
-    set(WARNING_LEVEL_OPTIONS
-        ${COMPILER_DEFAULT_WARNING_LEVEL}
-        /W0 /W1 /W2 /W3 /W4 /Wall)
-elseif(IS_GNU OR IS_CLANG)
-    set(WARNING_LEVEL_OPTIONS
-        ${COMPILER_DEFAULT_WARNING_LEVEL}
-        -w -Wall "-Wall -pedantic" "-Wall -pedantic -Wextra -Wno-long-long")
-else()
-    message(WARNING "Unsupported compiler. Please update CMakeLists.txt")
-endif()
-
-# Set the default warning level.
-if(IS_MSVC)
-    set(COLMAP_WARNING_LEVEL "/W3" CACHE STRING
-        "Default compiler warning level.")
-elseif(IS_GNU OR IS_CLANG)
-    set(COLMAP_WARNING_LEVEL "-Wall -pedantic" CACHE STRING
-        "Default compiler warning level.")
-else()
-    message(WARNING "Unsupported compiler. Please update CMakeLists.txt")
-endif()
-# Allow the user to change the default warning level using a drop-down list in
-# the CMake GUI.
-set_property(CACHE COLMAP_WARNING_LEVEL PROPERTY STRINGS
-    ${WARNING_LEVEL_OPTIONS})
-
-# Set the default warning level for 3rd-party targets.
-if(IS_MSVC)
-    set(COLMAP_WARNING_LEVEL_THIRD_PARTY "/W0" CACHE STRING
-        "Default compiler warning level for 3rd-party targets.")
-elseif(IS_GNU OR IS_CLANG)
-    set(COLMAP_WARNING_LEVEL_THIRD_PARTY "-w" CACHE STRING
-        "Default compiler warning level for 3rd-party targets.")
-else()
-    message(WARNING "Unsupported compiler. Please update CMakeLists.txt")
-endif()
-# Allow the user to change the default warning level for 3rd-party targets
-# using a drop-down list in the CMake GUI.
-set_property(CACHE COLMAP_WARNING_LEVEL_THIRD_PARTY PROPERTY STRINGS
-    ${WARNING_LEVEL_OPTIONS})
-
-# Macro used to define that all following targets should be treated as
-# 3rd-party targets.
-macro(COLMAP_SET_THIRD_PARTY_FOLDER)
-    set(COLMAP_THIRD_PARTY_FOLDER TRUE)
-endmacro(COLMAP_SET_THIRD_PARTY_FOLDER)
-
-# Macro used to define that all following targets should not be treated as
-# 3rd-party targets.
-macro(COLMAP_UNSET_THIRD_PARTY_FOLDER)
-    set(COLMAP_THIRD_PARTY_FOLDER FALSE)
-endmacro(COLMAP_UNSET_THIRD_PARTY_FOLDER)
-
-# Macro to help provide replacements to the normal add_library(),
-# add_executable(), etc. commands.
-macro(COLMAP_ADD_TARGET_HELPER TARGET_NAME)
-    # Set the name of the folder that will contain this target in the GUI.
-    # It is assumed that FOLDER_NAME has already been defined.
-    set_target_properties(${TARGET_NAME} PROPERTIES FOLDER
-        ${COLMAP_TARGETS_ROOT_FOLDER}/${FOLDER_NAME})
-
-    # Get the warning level to use for this target.
-    if(COLMAP_THIRD_PARTY_FOLDER)
-        set(CURRENT_WARNING_LEVEL ${COLMAP_WARNING_LEVEL_THIRD_PARTY})
-    else()
-        set(CURRENT_WARNING_LEVEL ${COLMAP_WARNING_LEVEL})
-    endif()
-
-    # Only update the target's compile options if a valid warning level has
-    # been selected.
-    if(NOT ${CURRENT_WARNING_LEVEL} STREQUAL ${COMPILER_DEFAULT_WARNING_LEVEL})
-        # Get the current compile options.
-        get_target_property(CURRENT_COMPILE_OPTIONS ${TARGET_NAME} COMPILE_OPTIONS)
-
-        # If compile options have not already been set for this target, set them to
-        # a default value.
-        if(NOT CURRENT_COMPILE_OPTIONS)
-            set(CURRENT_COMPILE_OPTIONS "")
+# Macro to add source files to COLMAP library.
+macro(COLMAP_ADD_SOURCES)
+    set(SOURCE_FILES "")
+    foreach(SOURCE_FILE ${ARGN})
+        if(SOURCE_FILE MATCHES "^/.*")
+            list(APPEND SOURCE_FILES ${SOURCE_FILE})
+        else()
+            list(APPEND SOURCE_FILES
+                 "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE_FILE}")
         endif()
+    endforeach()
+    set(COLMAP_SOURCES ${COLMAP_SOURCES} ${SOURCE_FILES} PARENT_SCOPE)
+endmacro(COLMAP_ADD_SOURCES)
 
-        separate_arguments(CURRENT_WARNING_LEVEL)
+# Macro to add CUDA source files to COLMAP library.
+macro(COLMAP_ADD_CUDA_SOURCES)
+    set(SOURCE_FILES "")
+    foreach(SOURCE_FILE ${ARGN})
+        if(SOURCE_FILE MATCHES "^/.*")
+            # Absolute path.
+            list(APPEND SOURCE_FILES ${SOURCE_FILE})
+        else()
+            # Relative path.
+            list(APPEND SOURCE_FILES
+                 "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE_FILE}")
+        endif()
+    endforeach()
 
-        # If the warning level consists of multiple tokens, add each token to the
-        # current list of compile options.
-        foreach(WARNING_LEVEL ${CURRENT_WARNING_LEVEL})
-            list(APPEND CURRENT_COMPILE_OPTIONS ${WARNING_LEVEL})
-        endforeach()
-        unset(WARNING_LEVEL)
-        unset(CURRENT_WARNING_LEVEL)
-
-        # Set the target's updated compile options.
-        set_target_properties(${TARGET_NAME} PROPERTIES
-            COMPILE_OPTIONS "${CURRENT_COMPILE_OPTIONS}")
-        unset(CURRENT_COMPILE_OPTIONS)
-    endif()
-endmacro(COLMAP_ADD_TARGET_HELPER)
+    set(COLMAP_CUDA_SOURCES
+        ${COLMAP_CUDA_SOURCES}
+        ${SOURCE_FILES}
+        PARENT_SCOPE)
+endmacro(COLMAP_ADD_CUDA_SOURCES)
 
 # Replacement for the normal add_library() command. The syntax remains the same
 # in that the first argument is the target name, and the following arguments
@@ -181,18 +112,21 @@ endmacro(COLMAP_ADD_TARGET_HELPER)
 macro(COLMAP_ADD_LIBRARY TARGET_NAME)
     # ${ARGN} will store the list of source files passed to this function.
     add_library(${TARGET_NAME} ${ARGN})
-    qt5_use_modules(${TARGET_NAME} ${COLMAP_QT_MODULES})
-    COLMAP_ADD_TARGET_HELPER(${TARGET_NAME})
+    set_target_properties(${TARGET_NAME} PROPERTIES FOLDER
+        ${COLMAP_TARGETS_ROOT_FOLDER}/${FOLDER_NAME})
+    install(TARGETS ${TARGET_NAME} DESTINATION lib/colmap/)
 endmacro(COLMAP_ADD_LIBRARY)
 
 # Replacement for the normal cuda_add_library() command. The syntax remains the
 # same in that the first argument is the target name, and the following
 # arguments are the source files to use when building the target.
-macro(COLMAP_CUDA_ADD_LIBRARY TARGET_NAME)
+macro(COLMAP_ADD_CUDA_LIBRARY TARGET_NAME)
     # ${ARGN} will store the list of source files passed to this function.
     cuda_add_library(${TARGET_NAME} ${ARGN})
-    COLMAP_ADD_TARGET_HELPER(${TARGET_NAME})
-endmacro(COLMAP_CUDA_ADD_LIBRARY)
+    set_target_properties(${TARGET_NAME} PROPERTIES FOLDER
+        ${COLMAP_TARGETS_ROOT_FOLDER}/${FOLDER_NAME})
+    install(TARGETS ${TARGET_NAME} DESTINATION lib/colmap/)
+endmacro(COLMAP_ADD_CUDA_LIBRARY)
 
 # Replacement for the normal add_executable() command. The syntax remains the
 # same in that the first argument is the target name, and the following
@@ -200,41 +134,42 @@ endmacro(COLMAP_CUDA_ADD_LIBRARY)
 macro(COLMAP_ADD_EXECUTABLE TARGET_NAME)
     # ${ARGN} will store the list of source files passed to this function.
     add_executable(${TARGET_NAME} ${ARGN})
+    set_target_properties(${TARGET_NAME} PROPERTIES FOLDER
+        ${COLMAP_TARGETS_ROOT_FOLDER}/${FOLDER_NAME})
     target_link_libraries(${TARGET_NAME} ${COLMAP_LIBRARIES})
-    qt5_use_modules(${TARGET_NAME} ${COLMAP_QT_MODULES})
-    COLMAP_ADD_TARGET_HELPER(${TARGET_NAME})
     install(TARGETS ${TARGET_NAME} DESTINATION bin/)
 endmacro(COLMAP_ADD_EXECUTABLE)
 
-# Replacement for the normal add_executable() command. The syntax remains the
-# same in that the first argument is the target name, and the following
-# arguments are the source files to use when building the target.
-macro(COLMAP_ADD_UI_EXECUTABLE TARGET_NAME)
-    # ${ARGN} will store the list of source files passed to this function.
-    add_executable(${TARGET_NAME} ${ARGN})
-    target_link_libraries(${TARGET_NAME}
-                          ${COLMAP_UI_LIBRARIES} ${COLMAP_LIBRARIES})
-    qt5_use_modules(${TARGET_NAME} ${COLMAP_QT_MODULES})
-    COLMAP_ADD_TARGET_HELPER(${TARGET_NAME})
-    install(TARGETS ${TARGET_NAME} DESTINATION bin/)
-endmacro(COLMAP_ADD_UI_EXECUTABLE)
-
-# Wrapper for test executables
+# Wrapper for test executables.
 macro(COLMAP_ADD_TEST TARGET_NAME)
-    # ${ARGN} will store the list of source files passed to this function.
-    add_executable(${TARGET_NAME} ${ARGN})
-    target_link_libraries(${TARGET_NAME} ${COLMAP_LIBRARIES})
-    COLMAP_ADD_TARGET_HELPER(${TARGET_NAME})
-    add_test("${FOLDER_NAME}/${TARGET_NAME}" ${TARGET_NAME})
-    install(TARGETS ${TARGET_NAME} DESTINATION test/)
+    if(TESTS_ENABLED)
+        # ${ARGN} will store the list of source files passed to this function.
+        add_executable(${TARGET_NAME} ${ARGN})
+        set_target_properties(${TARGET_NAME} PROPERTIES FOLDER
+            ${COLMAP_TARGETS_ROOT_FOLDER}/${FOLDER_NAME})
+        target_link_libraries(${TARGET_NAME}
+                              ${COLMAP_LIBRARIES}
+                              ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+        add_test("${FOLDER_NAME}/${TARGET_NAME}" ${TARGET_NAME})
+        if(IS_MSVC)
+            install(TARGETS ${TARGET_NAME} DESTINATION bin/)
+        endif()
+    endif()
 endmacro(COLMAP_ADD_TEST)
 
-# Wrapper for CUDA test executables
-macro(COLMAP_CUDA_ADD_TEST TARGET_NAME)
-    # ${ARGN} will store the list of source files passed to this function.
-    cuda_add_executable(${TARGET_NAME} ${ARGN})
-    target_link_libraries(${TARGET_NAME} ${COLMAP_LIBRARIES})
-    COLMAP_ADD_TARGET_HELPER(${TARGET_NAME})
-    add_test("${FOLDER_NAME}/${TARGET_NAME}" ${TARGET_NAME})
-    install(TARGETS ${TARGET_NAME} DESTINATION test/)
-endmacro(COLMAP_CUDA_ADD_TEST)
+# Wrapper for CUDA test executables.
+macro(COLMAP_ADD_CUDA_TEST TARGET_NAME)
+    if(TESTS_ENABLED)
+        # ${ARGN} will store the list of source files passed to this function.
+        cuda_add_executable(${TARGET_NAME} ${ARGN})
+        set_target_properties(${TARGET_NAME} PROPERTIES FOLDER
+            ${COLMAP_TARGETS_ROOT_FOLDER}/${FOLDER_NAME})
+        target_link_libraries(${TARGET_NAME}
+                              ${COLMAP_LIBRARIES}
+                              ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+        add_test("${FOLDER_NAME}/${TARGET_NAME}" ${TARGET_NAME})
+        if(IS_MSVC)
+            install(TARGETS ${TARGET_NAME} DESTINATION bin/)
+        endif()
+    endif()
+endmacro(COLMAP_ADD_CUDA_TEST)

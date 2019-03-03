@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_MVS_GPU_MAT_H_
 #define COLMAP_SRC_MVS_GPU_MAT_H_
@@ -28,8 +43,10 @@
 #include "mvs/cuda_flip.h"
 #include "mvs/cuda_rotate.h"
 #include "mvs/cuda_transpose.h"
-#include "mvs/cuda_utils.h"
 #include "mvs/mat.h"
+#include "util/cuda.h"
+#include "util/cudacc.h"
+#include "util/endian.h"
 
 namespace colmap {
 namespace mvs {
@@ -48,9 +65,8 @@ class GpuMat {
   __host__ __device__ size_t GetHeight() const;
   __host__ __device__ size_t GetDepth() const;
 
-  __device__ T Get(const size_t row, const size_t col) const;
   __device__ T Get(const size_t row, const size_t col,
-                   const size_t slice) const;
+                   const size_t slice = 0) const;
   __device__ void GetSlice(const size_t row, const size_t col, T* values) const;
 
   __device__ T& GetRef(const size_t row, const size_t col);
@@ -79,9 +95,9 @@ class GpuMat {
   // Rotate array in counter-clockwise direction.
   void Rotate(GpuMat<T>* output);
 
-  void Read(const std::string& file_name);
-  void Write(const std::string& file_name);
-  void Write(const std::string& file_name, const size_t slice);
+  void Read(const std::string& path);
+  void Write(const std::string& path);
+  void Write(const std::string& path, const size_t slice);
 
  protected:
   void ComputeCudaConfig();
@@ -196,11 +212,6 @@ __host__ __device__ size_t GpuMat<T>::GetDepth() const {
 }
 
 template <typename T>
-__device__ T GpuMat<T>::Get(const size_t row, const size_t col) const {
-  return Get(row, col, 0);
-}
-
-template <typename T>
 __device__ T GpuMat<T>::Get(const size_t row, const size_t col,
                             const size_t slice) const {
   return *((T*)((char*)array_ptr_ + pitch_ * (slice * height_ + row)) + col);
@@ -247,27 +258,28 @@ __device__ void GpuMat<T>::SetSlice(const size_t row, const size_t col,
 
 template <typename T>
 void GpuMat<T>::FillWithScalar(const T value) {
-  cudaMemset(array_ptr_, value, width_ * height_ * depth_ * sizeof(T));
-  CUDA_CHECK_ERROR();
+  CUDA_SAFE_CALL(
+      cudaMemset(array_ptr_, value, width_ * height_ * depth_ * sizeof(T)));
 }
 
 template <typename T>
 void GpuMat<T>::FillWithVector(const T* values) {
   T* values_device;
-  cudaMalloc((void**)&values_device, depth_ * sizeof(T));
-  cudaMemcpy(values_device, values, depth_ * sizeof(T), cudaMemcpyHostToDevice);
-  internal::FillWithVectorKernel<T><<<gridSize_, blockSize_>>>(values_device,
-                                                               *this);
-  cudaFree(values_device);
-  CUDA_CHECK_ERROR();
+  CUDA_SAFE_CALL(cudaMalloc((void**)&values_device, depth_ * sizeof(T)));
+  CUDA_SAFE_CALL(cudaMemcpy(values_device, values, depth_ * sizeof(T),
+                            cudaMemcpyHostToDevice));
+  internal::FillWithVectorKernel<T>
+      <<<gridSize_, blockSize_>>>(values_device, *this);
+  CUDA_SYNC_AND_CHECK();
+  CUDA_SAFE_CALL(cudaFree(values_device));
 }
 
 template <typename T>
 void GpuMat<T>::FillWithRandomNumbers(const T min_value, const T max_value,
                                       const GpuMat<curandState> random_state) {
-  internal::FillWithRandomNumbersKernel<T><<<gridSize_, blockSize_>>>(
-      *this, random_state, min_value, max_value);
-  CUDA_CHECK_ERROR();
+  internal::FillWithRandomNumbersKernel<T>
+      <<<gridSize_, blockSize_>>>(*this, random_state, min_value, max_value);
+  CUDA_SYNC_AND_CHECK();
 }
 
 template <typename T>
@@ -298,20 +310,19 @@ void GpuMat<T>::Transpose(GpuMat<T>* output) {
                   output->GetPtr() +
                       slice * output->pitch_ / sizeof(T) * output->GetHeight(),
                   width_, height_, pitch_, output->pitch_);
-    CUDA_CHECK_ERROR();
   }
+  CUDA_SYNC_AND_CHECK();
 }
 
 template <typename T>
 void GpuMat<T>::FlipHorizontal(GpuMat<T>* output) {
   for (size_t slice = 0; slice < depth_; ++slice) {
-    CudaFlipHorizontal(
-        array_ptr_ + slice * pitch_ / sizeof(T) * GetHeight(),
-        output->GetPtr() +
-            slice * output->pitch_ / sizeof(T) * output->GetHeight(),
-        width_, height_, pitch_, output->pitch_);
-    CUDA_CHECK_ERROR();
+    CudaFlipHorizontal(array_ptr_ + slice * pitch_ / sizeof(T) * GetHeight(),
+                       output->GetPtr() + slice * output->pitch_ / sizeof(T) *
+                                              output->GetHeight(),
+                       width_, height_, pitch_, output->pitch_);
   }
+  CUDA_SYNC_AND_CHECK();
 }
 
 template <typename T>
@@ -321,8 +332,8 @@ void GpuMat<T>::Rotate(GpuMat<T>* output) {
                output->GetPtr() +
                    slice * output->pitch_ / sizeof(T) * output->GetHeight(),
                width_, height_, pitch_, output->pitch_);
-    CUDA_CHECK_ERROR();
   }
+  CUDA_SYNC_AND_CHECK();
   // This is equivalent to the following code:
   //   GpuMat<T> flipped_array(width_, height_, GetDepth());
   //   FlipHorizontal(&flipped_array);
@@ -330,9 +341,9 @@ void GpuMat<T>::Rotate(GpuMat<T>* output) {
 }
 
 template <typename T>
-void GpuMat<T>::Read(const std::string& file_name) {
-  std::fstream text_file(file_name, std::ios_base::in | std::ios_base::binary);
-  CHECK(text_file.is_open()) << file_name;
+void GpuMat<T>::Read(const std::string& path) {
+  std::fstream text_file(path, std::ios::in | std::ios::binary);
+  CHECK(text_file.is_open()) << path;
 
   size_t width;
   size_t height;
@@ -343,51 +354,46 @@ void GpuMat<T>::Read(const std::string& file_name) {
   std::streampos pos = text_file.tellg();
   text_file.close();
 
-  std::fstream binary_file(file_name,
-                           std::ios_base::in | std::ios_base::binary);
+  std::fstream binary_file(path, std::ios::in | std::ios::binary);
   binary_file.seekg(pos);
 
   std::vector<T> source(width_ * height_ * depth_);
-  binary_file.read(reinterpret_cast<char*>(source.data()),
-                   width * height * depth * sizeof(T));
+  ReadBinaryLittleEndian<T>(&binary_file, &source);
   binary_file.close();
 
   CopyToDevice(source.data(), width_ * sizeof(T));
 }
 
 template <typename T>
-void GpuMat<T>::Write(const std::string& file_name) {
+void GpuMat<T>::Write(const std::string& path) {
   std::vector<T> dest(width_ * height_ * depth_);
   CopyToHost(dest.data(), width_ * sizeof(T));
 
-  std::fstream text_file(file_name, std::ios_base::out);
+  std::fstream text_file(path, std::ios::out);
   text_file << width_ << "&" << height_ << "&" << depth_ << "&";
   text_file.close();
 
-  std::fstream binary_file(file_name, std::ios_base::out |
-                                          std::ios_base::binary |
-                                          std::ios_base::app);
-  binary_file.write((char*)dest.data(), sizeof(T) * width_ * height_ * depth_);
+  std::fstream binary_file(path,
+                           std::ios::out | std::ios::binary | std::ios::app);
+  WriteBinaryLittleEndian<T>(&binary_file, dest);
   binary_file.close();
 }
 
 template <typename T>
-void GpuMat<T>::Write(const std::string& file_name, const size_t slice) {
+void GpuMat<T>::Write(const std::string& path, const size_t slice) {
   std::vector<T> dest(width_ * height_);
   CUDA_SAFE_CALL(cudaMemcpy2D(
       (void*)dest.data(), width_ * sizeof(T),
       (void*)(array_ptr_ + slice * height_ * pitch_ / sizeof(T)), pitch_,
       width_ * sizeof(T), height_, cudaMemcpyDeviceToHost));
 
-  std::fstream text_file(file_name, std::ios_base::out);
+  std::fstream text_file(path, std::ios::out);
   text_file << width_ << "&" << height_ << "&" << 1 << "&";
   text_file.close();
 
-  std::fstream binary_file(file_name, std::ios_base::out |
-                                          std::ios_base::binary |
-                                          std::ios_base::app);
-
-  binary_file.write((char*)dest.data(), sizeof(T) * width_ * height_);
+  std::fstream binary_file(path,
+                           std::ios::out | std::ios::binary | std::ios::app);
+  WriteBinaryLittleEndian<T>(&binary_file, dest);
   binary_file.close();
 }
 

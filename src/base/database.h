@@ -1,34 +1,48 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_BASE_DATABASE_H_
 #define COLMAP_SRC_BASE_DATABASE_H_
 
+#include <mutex>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
 
 #include <Eigen/Core>
 
+#include "SQLite/sqlite3.h"
 #include "base/camera.h"
-#include "base/feature.h"
 #include "base/image.h"
 #include "estimators/two_view_geometry.h"
-#include "ext/SQLite/sqlite3.h"
-#include "util/sqlite3_utils.h"
+#include "feature/types.h"
 #include "util/types.h"
 
 namespace colmap {
@@ -49,7 +63,7 @@ class Database {
   const static size_t kMaxNumImages;
 
   Database();
-  Database(const std::string& path);
+  explicit Database(const std::string& path);
   ~Database();
 
   // Open and close database. The same database should not be opened
@@ -77,6 +91,9 @@ class Database {
   // Sum of `rows` column in `keypoints` table, i.e. number of total keypoints.
   size_t NumKeypoints() const;
 
+  // The number of keypoints for the image with most features.
+  size_t MaxNumKeypoints() const;
+
   // Number of descriptors for specific image.
   size_t NumKeypointsForImage(const image_t image_id) const;
 
@@ -84,24 +101,27 @@ class Database {
   // i.e. number of total descriptors.
   size_t NumDescriptors() const;
 
+  // The number of descriptors for the image with most features.
+  size_t MaxNumDescriptors() const;
+
   // Number of descriptors for specific image.
   size_t NumDescriptorsForImage(const image_t image_id) const;
 
   // Sum of `rows` column in `matches` table, i.e. number of total matches.
   size_t NumMatches() const;
 
-  // Sum of `rows` column in `inlier_matches` table,
+  // Sum of `rows` column in `two_view_geometries` table,
   // i.e. number of total inlier matches.
   size_t NumInlierMatches() const;
 
   // Number of rows in `matches` table.
   size_t NumMatchedImagePairs() const;
 
-  // Number of rows in `inlier_matches` table.
+  // Number of rows in `two_view_geometries` table.
   size_t NumVerifiedImagePairs() const;
 
   // Each image pair is assigned an unique ID in the `matches` and
-  // `inlier_matches` table. We intentionally avoid to store the pairs in a
+  // `two_view_geometries` table. We intentionally avoid to store the pairs in a
   // separate table by using e.g. AUTOINCREMENT, since the overhead of querying
   // the unique pair ID is significant.
   inline static image_pair_t ImagePairToPairId(const image_t image_id1,
@@ -133,14 +153,15 @@ class Database {
                              const image_t image_id2) const;
   std::vector<std::pair<image_pair_t, FeatureMatches>> ReadAllMatches() const;
 
-  TwoViewGeometry ReadInlierMatches(const image_t image_id1,
-                                    const image_t image_id2) const;
-  std::vector<std::pair<image_pair_t, TwoViewGeometry>> ReadAllInlierMatches()
-      const;
+  TwoViewGeometry ReadTwoViewGeometry(const image_t image_id1,
+                                      const image_t image_id2) const;
+  void ReadTwoViewGeometries(
+      std::vector<image_pair_t>* image_pair_ids,
+      std::vector<TwoViewGeometry>* two_view_geometries) const;
 
-  // Read all image pairs that have an entry in the `inlier_matches` table with
-  // at least one inlier match and their corresponding number of inlier matches.
-  void ReadInlierMatchesGraph(
+  // Read all image pairs that have an entry in the `NumVerifiedImagePairs`
+  // table with at least one inlier match and their number of inlier matches.
+  void ReadTwoViewGeometryNumInliers(
       std::vector<std::pair<image_t, image_t>>* image_pairs,
       std::vector<int>* num_inliers) const;
 
@@ -162,22 +183,29 @@ class Database {
                         const FeatureDescriptors& descriptors) const;
   void WriteMatches(const image_t image_id1, const image_t image_id2,
                     const FeatureMatches& matches) const;
-  void WriteInlierMatches(const image_t image_id1, const image_t image_id2,
-                          const TwoViewGeometry& two_view_geometry) const;
+  void WriteTwoViewGeometry(const image_t image_id1, const image_t image_id2,
+                            const TwoViewGeometry& two_view_geometry) const;
 
   // Update an existing camera in the database. The user is responsible for
   // making sure that the entry already exists.
-  void UpdateCamera(const Camera& camera);
+  void UpdateCamera(const Camera& camera) const;
 
   // Update an existing image in the database. The user is responsible for
   // making sure that the entry already exists.
-  void UpdateImage(const Image& image);
+  void UpdateImage(const Image& image) const;
+
+  // Delete matches of an image pair.
+  void DeleteMatches(const image_t image_id1, const image_t image_id2) const;
+
+  // Delete inlier matches of an image pair.
+  void DeleteInlierMatches(const image_t image_id1,
+                           const image_t image_id2) const;
 
   // Clear the entire matches table.
   void ClearMatches() const;
 
   // Clear the entire inlier matches table.
-  void ClearInlierMatches() const;
+  void ClearTwoViewGeometries() const;
 
  private:
   friend class DatabaseTransaction;
@@ -202,10 +230,13 @@ class Database {
   void CreateKeypointsTable() const;
   void CreateDescriptorsTable() const;
   void CreateMatchesTable() const;
-  void CreateInlierMatchesTable() const;
+  void CreateTwoViewGeometriesTable() const;
 
-  // Keep track of database schema version.
   void UpdateSchema() const;
+
+  bool ExistsTable(const std::string& table_name) const;
+  bool ExistsColumn(const std::string& table_name,
+                    const std::string& column_name) const;
 
   bool ExistsRowId(sqlite3_stmt* sql_stmt, const sqlite3_int64 row_id) const;
   bool ExistsRowString(sqlite3_stmt* sql_stmt,
@@ -215,8 +246,16 @@ class Database {
   size_t CountRowsForEntry(sqlite3_stmt* sql_stmt,
                            const sqlite3_int64 row_id) const;
   size_t SumColumn(const std::string& column, const std::string& table) const;
+  size_t MaxColumn(const std::string& column, const std::string& table) const;
 
-  sqlite3* database_;
+  sqlite3* database_ = nullptr;
+
+  // Ensure that only one database object at a time updates the schema of a
+  // database. Since the schema is updated every time a database is opened, this
+  // is to ensure that there are no race conditions ("database locked" error
+  // messages) when the user actually only intends to read from the database,
+  // which requires to open it.
+  static std::mutex update_schema_mutex_;
 
   // Used to ensure that only one transaction is active at the same time.
   std::mutex transaction_mutex_;
@@ -225,49 +264,53 @@ class Database {
   std::vector<sqlite3_stmt*> sql_stmts_;
 
   // num_*
-  sqlite3_stmt* sql_stmt_num_keypoints_;
-  sqlite3_stmt* sql_stmt_num_descriptors_;
+  sqlite3_stmt* sql_stmt_num_keypoints_ = nullptr;
+  sqlite3_stmt* sql_stmt_num_descriptors_ = nullptr;
 
   // exists_*
-  sqlite3_stmt* sql_stmt_exists_camera_;
-  sqlite3_stmt* sql_stmt_exists_image_id_;
-  sqlite3_stmt* sql_stmt_exists_image_name_;
-  sqlite3_stmt* sql_stmt_exists_keypoints_;
-  sqlite3_stmt* sql_stmt_exists_descriptors_;
-  sqlite3_stmt* sql_stmt_exists_matches_;
-  sqlite3_stmt* sql_stmt_exists_inlier_matches_;
+  sqlite3_stmt* sql_stmt_exists_camera_ = nullptr;
+  sqlite3_stmt* sql_stmt_exists_image_id_ = nullptr;
+  sqlite3_stmt* sql_stmt_exists_image_name_ = nullptr;
+  sqlite3_stmt* sql_stmt_exists_keypoints_ = nullptr;
+  sqlite3_stmt* sql_stmt_exists_descriptors_ = nullptr;
+  sqlite3_stmt* sql_stmt_exists_matches_ = nullptr;
+  sqlite3_stmt* sql_stmt_exists_two_view_geometry_ = nullptr;
 
   // add_*
-  sqlite3_stmt* sql_stmt_add_camera_;
-  sqlite3_stmt* sql_stmt_add_image_;
+  sqlite3_stmt* sql_stmt_add_camera_ = nullptr;
+  sqlite3_stmt* sql_stmt_add_image_ = nullptr;
 
   // update_*
-  sqlite3_stmt* sql_stmt_update_camera_;
-  sqlite3_stmt* sql_stmt_update_image_;
+  sqlite3_stmt* sql_stmt_update_camera_ = nullptr;
+  sqlite3_stmt* sql_stmt_update_image_ = nullptr;
 
   // read_*
-  sqlite3_stmt* sql_stmt_read_camera_;
-  sqlite3_stmt* sql_stmt_read_cameras_;
-  sqlite3_stmt* sql_stmt_read_image_id_;
-  sqlite3_stmt* sql_stmt_read_image_name_;
-  sqlite3_stmt* sql_stmt_read_images_;
-  sqlite3_stmt* sql_stmt_read_keypoints_;
-  sqlite3_stmt* sql_stmt_read_descriptors_;
-  sqlite3_stmt* sql_stmt_read_matches_;
-  sqlite3_stmt* sql_stmt_read_matches_all_;
-  sqlite3_stmt* sql_stmt_read_inlier_matches_;
-  sqlite3_stmt* sql_stmt_read_inlier_matches_all_;
-  sqlite3_stmt* sql_stmt_read_inlier_matches_graph_;
+  sqlite3_stmt* sql_stmt_read_camera_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_cameras_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_image_id_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_image_name_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_images_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_keypoints_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_descriptors_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_matches_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_matches_all_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_two_view_geometry_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_two_view_geometries_ = nullptr;
+  sqlite3_stmt* sql_stmt_read_two_view_geometry_num_inliers_ = nullptr;
 
   // write_*
-  sqlite3_stmt* sql_stmt_write_keypoints_;
-  sqlite3_stmt* sql_stmt_write_descriptors_;
-  sqlite3_stmt* sql_stmt_write_matches_;
-  sqlite3_stmt* sql_stmt_write_inlier_matches_;
+  sqlite3_stmt* sql_stmt_write_keypoints_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_descriptors_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_matches_ = nullptr;
+  sqlite3_stmt* sql_stmt_write_two_view_geometry_ = nullptr;
+
+  // delete_*
+  sqlite3_stmt* sql_stmt_delete_matches_ = nullptr;
+  sqlite3_stmt* sql_stmt_delete_two_view_geometry_ = nullptr;
 
   // clear_*
-  sqlite3_stmt* sql_stmt_clear_matches_;
-  sqlite3_stmt* sql_stmt_clear_inlier_matches_;
+  sqlite3_stmt* sql_stmt_clear_matches_ = nullptr;
+  sqlite3_stmt* sql_stmt_clear_two_view_geometries_ = nullptr;
 };
 
 // This class automatically manages the scope of a database transaction by
@@ -275,7 +318,7 @@ class Database {
 // destruction, respectively.
 class DatabaseTransaction {
  public:
-  DatabaseTransaction(Database* database);
+  explicit DatabaseTransaction(Database* database);
   ~DatabaseTransaction();
 
  private:

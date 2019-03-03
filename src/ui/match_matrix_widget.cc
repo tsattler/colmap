@@ -1,23 +1,35 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/match_matrix_widget.h"
-
-#include "base/database.h"
-#include "ui/colormaps.h"
 
 namespace colmap {
 
@@ -43,7 +55,7 @@ void MatchMatrixWidget::Show() {
   // Allocate the match matrix image.
   Bitmap match_matrix;
   match_matrix.Allocate(images.size(), images.size(), true);
-  match_matrix.Fill(BitmapColor<uint8_t>(255, 255, 255));
+  match_matrix.Fill(BitmapColor<uint8_t>(255));
 
   // Map image identifiers to match matrix locations.
   std::unordered_map<image_t, size_t> image_id_to_idx;
@@ -53,14 +65,14 @@ void MatchMatrixWidget::Show() {
 
   std::vector<std::pair<image_t, image_t>> image_pairs;
   std::vector<int> num_inliers;
-  database.ReadInlierMatchesGraph(&image_pairs, &num_inliers);
+  database.ReadTwoViewGeometryNumInliers(&image_pairs, &num_inliers);
 
   // Fill the match matrix.
   if (!num_inliers.empty()) {
-    const double max_value = std::log(
-        1.0 + *std::max_element(num_inliers.begin(), num_inliers.end()));
+    const double max_value =
+        std::log1p(*std::max_element(num_inliers.begin(), num_inliers.end()));
     for (size_t i = 0; i < image_pairs.size(); ++i) {
-      const double value = std::log(1.0 + num_inliers[i]) / max_value;
+      const double value = std::log1p(num_inliers[i]) / max_value;
       const size_t idx1 = image_id_to_idx.at(image_pairs[i].first);
       const size_t idx2 = image_id_to_idx.at(image_pairs[i].second);
       const BitmapColor<float> color(255 * JetColormap::Red(value),
@@ -71,7 +83,7 @@ void MatchMatrixWidget::Show() {
     }
   }
 
-  ShowBitmap(match_matrix, true);
+  ShowBitmap(match_matrix);
 }
 
 }  // namespace colmap

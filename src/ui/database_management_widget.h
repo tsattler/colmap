@@ -1,25 +1,38 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_UI_DATABASE_MANAGEMENT_WIDGET_H_
 #define COLMAP_SRC_UI_DATABASE_MANAGEMENT_WIDGET_H_
 
 #include <unordered_map>
-
-#include <boost/filesystem.hpp>
 
 #include <QtCore>
 #include <QtWidgets>
@@ -35,10 +48,10 @@ namespace colmap {
 // Matches
 ////////////////////////////////////////////////////////////////////////////////
 
-class MatchesTab : public QWidget {
+class TwoViewInfoTab : public QWidget {
  public:
-  MatchesTab() {}
-  MatchesTab(QWidget* parent, OptionManager* options, Database* database);
+  TwoViewInfoTab() {}
+  TwoViewInfoTab(QWidget* parent, OptionManager* options, Database* database);
 
   void Clear();
 
@@ -60,23 +73,25 @@ class MatchesTab : public QWidget {
   FeatureImageViewerWidget* matches_viewer_widget_;
 };
 
-class RawMatchesTab : public MatchesTab {
+class MatchesTab : public TwoViewInfoTab {
  public:
-  RawMatchesTab(QWidget* parent, OptionManager* options, Database* database);
+  MatchesTab(QWidget* parent, OptionManager* options, Database* database);
 
-  void Update(const std::vector<Image>& images, const image_t image_id);
+  void Reload(const std::vector<Image>& images, const image_t image_id);
 };
 
-class InlierMatchesTab : public MatchesTab {
+class TwoViewGeometriesTab : public TwoViewInfoTab {
  public:
-  InlierMatchesTab(QWidget* parent, OptionManager* options, Database* database);
+  TwoViewGeometriesTab(QWidget* parent, OptionManager* options,
+                       Database* database);
 
-  void Update(const std::vector<Image>& images, const image_t image_id);
+  void Reload(const std::vector<Image>& images, const image_t image_id);
 };
 
-class MatchesWidget : public QWidget {
+class OverlappingImagesWidget : public QWidget {
  public:
-  MatchesWidget(QWidget* parent, OptionManager* options, Database* database);
+  OverlappingImagesWidget(QWidget* parent, OptionManager* options,
+                          Database* database);
 
   void ShowMatches(const std::vector<Image>& images, const image_t image_id);
 
@@ -88,20 +103,40 @@ class MatchesWidget : public QWidget {
   OptionManager* options_;
 
   QTabWidget* tab_widget_;
-  RawMatchesTab* raw_matches_tab_;
-  InlierMatchesTab* inlier_matches_tab_;
+  MatchesTab* matches_tab_;
+  TwoViewGeometriesTab* two_view_geometries_tab_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 // Images, Cameras
 ////////////////////////////////////////////////////////////////////////////////
 
+class CameraTab : public QWidget {
+ public:
+  CameraTab(QWidget* parent, Database* database);
+
+  void Reload();
+  void Clear();
+
+ private:
+  void itemChanged(QTableWidgetItem* item);
+  void Add();
+  void SetModel();
+
+  Database* database_;
+
+  std::vector<Camera> cameras_;
+
+  QTableWidget* table_widget_;
+  QLabel* info_label_;
+};
+
 class ImageTab : public QWidget {
  public:
-  ImageTab(QWidget* parent, OptionManager* options, Database* database);
+  ImageTab(QWidget* parent, CameraTab* camera_tab, OptionManager* options,
+           Database* database);
 
-  void Update();
-  void Save();
+  void Reload();
   void Clear();
 
  private:
@@ -110,6 +145,9 @@ class ImageTab : public QWidget {
   void ShowImage();
   void ShowMatches();
   void SetCamera();
+  void SplitCamera();
+
+  CameraTab* camera_tab_;
 
   OptionManager* options_;
   Database* database_;
@@ -119,29 +157,9 @@ class ImageTab : public QWidget {
   QTableWidget* table_widget_;
   QLabel* info_label_;
 
-  MatchesWidget* matches_widget_;
+  OverlappingImagesWidget* overlapping_images_widget_;
 
   FeatureImageViewerWidget* image_viewer_widget_;
-};
-
-class CameraTab : public QWidget {
- public:
-  CameraTab(QWidget* parent, Database* database);
-
-  void Update();
-  void Save();
-  void Clear();
-
- private:
-  void itemChanged(QTableWidgetItem* item);
-  void Add();
-
-  Database* database_;
-
-  std::vector<Camera> cameras_;
-
-  QTableWidget* table_widget_;
-  QLabel* info_label_;
 };
 
 class DatabaseManagementWidget : public QWidget {
@@ -152,9 +170,8 @@ class DatabaseManagementWidget : public QWidget {
   void showEvent(QShowEvent* event);
   void hideEvent(QHideEvent* event);
 
-  void Save();
   void ClearMatches();
-  void ClearInlierMatches();
+  void ClearTwoViewGeometries();
 
   QWidget* parent_;
 

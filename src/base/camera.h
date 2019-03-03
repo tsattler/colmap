@@ -1,25 +1,39 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_BASE_CAMERA_H_
 #define COLMAP_SRC_BASE_CAMERA_H_
 
 #include <vector>
 
-#include "base/camera_models.h"
 #include "util/types.h"
 
 namespace colmap {
@@ -39,8 +53,8 @@ class Camera {
   // Access the camera model.
   inline int ModelId() const;
   std::string ModelName() const;
-  inline void SetModelId(const int model_id);
-  void SetModelIdFromName(const std::string& name);
+  void SetModelId(const int model_id);
+  void SetModelIdFromName(const std::string& model_name);
 
   // Access dimensions of the camera sensor.
   inline size_t Width() const;
@@ -69,9 +83,9 @@ class Camera {
   void SetPrincipalPointY(const double ppy);
 
   // Get the indices of the parameter groups in the parameter vector.
-  std::vector<size_t> FocalLengthIdxs() const;
-  std::vector<size_t> PrincipalPointIdxs() const;
-  std::vector<size_t> ExtraParamsIdxs() const;
+  const std::vector<size_t>& FocalLengthIdxs() const;
+  const std::vector<size_t>& PrincipalPointIdxs() const;
+  const std::vector<size_t>& ExtraParamsIdxs() const;
 
   // Get intrinsic calibration matrix composed from focal length and principal
   // point parameters, excluding distortion parameters.
@@ -125,6 +139,7 @@ class Camera {
   // Rescale camera dimensions and accordingly the focal length and
   // and the principal point.
   void Rescale(const double scale);
+  void Rescale(const size_t width, const size_t height);
 
  private:
   // The unique identifier of the camera. If the identifier is not specified
@@ -157,8 +172,6 @@ camera_t Camera::CameraId() const { return camera_id_; }
 void Camera::SetCameraId(const camera_t camera_id) { camera_id_ = camera_id; }
 
 int Camera::ModelId() const { return model_id_; }
-
-void Camera::SetModelId(const int model_id) { model_id_ = model_id; }
 
 size_t Camera::Width() const { return width_; }
 

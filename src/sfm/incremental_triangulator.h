@@ -1,24 +1,40 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #ifndef COLMAP_SRC_SFM_INCREMENTAL_TRIANGULATOR_H_
 #define COLMAP_SRC_SFM_INCREMENTAL_TRIANGULATOR_H_
 
 #include "base/database_cache.h"
 #include "base/reconstruction.h"
+#include "util/alignment.h"
 
 namespace colmap {
 
@@ -68,12 +84,12 @@ class IncrementalTriangulator {
     double max_focal_length_ratio = 10.0;
     double max_extra_param = 1.0;
 
-    void Check() const;
+    bool Check() const;
   };
 
-  // Create new incremental triangulator. Note that both the scene graph and the
-  // reconstruction objects must live as long as the triangulator object.
-  IncrementalTriangulator(const SceneGraph* scene_graph,
+  // Create new incremental triangulator. Note that both the correspondence
+  // graph and the reconstruction objects must live as long as the triangulator.
+  IncrementalTriangulator(const CorrespondenceGraph* correspondence_graph,
                           Reconstruction* reconstruction);
 
   // Triangulate observations of image.
@@ -119,25 +135,25 @@ class IncrementalTriangulator {
   // inlier matches between the image pair.
   size_t Retriangulate(const Options& options);
 
-  // Get changed 3D points, since the last call to `ClearChangedPoints3D`.
-  std::unordered_set<point3D_t> ChangedPoints3D() const;
+  // Get changed 3D points, since the last call to `ClearModifiedPoints3D`.
+  const std::unordered_set<point3D_t>& GetModifiedPoints3D();
 
   // Clear the collection of changed 3D points.
-  void ClearChangedPoints3D();
+  void ClearModifiedPoints3D();
 
- private:
   // Data for a correspondence / element of a track, used to store all
   // relevant data for triangulation, in order to avoid duplicate lookup
   // in the underlying unordered_map's in the Reconstruction
   struct CorrData {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     image_t image_id;
     point2D_t point2D_idx;
     const Image* image;
     const Camera* camera;
     const Point2D* point2D;
-    Eigen::Matrix3x4d proj_matrix;
   };
 
+ private:
   // Clear cache of bogus camera parameters and merge trials.
   void ClearCaches();
 
@@ -165,7 +181,7 @@ class IncrementalTriangulator {
 
   // Database cache for the reconstruction. Used to retrieve correspondence
   // information for triangulation.
-  const SceneGraph* scene_graph_;
+  const CorrespondenceGraph* correspondence_graph_;
 
   // Reconstruction of the model. Modified when triangulating new points.
   Reconstruction* reconstruction_;
@@ -180,10 +196,13 @@ class IncrementalTriangulator {
   std::unordered_map<image_pair_t, int> re_num_trials_;
 
   // Changed 3D points, i.e. if a 3D point is modified (created, continued,
-  // deleted, merged, etc.). Cleared once `ChangedPoints3D` is called.
-  std::unordered_set<point3D_t> changed_point3D_ids_;
+  // deleted, merged, etc.). Cleared once `ModifiedPoints3D` is called.
+  std::unordered_set<point3D_t> modified_point3D_ids_;
 };
 
 }  // namespace colmap
+
+EIGEN_DEFINE_STL_VECTOR_SPECIALIZATION_CUSTOM(
+    colmap::IncrementalTriangulator::CorrData)
 
 #endif  // COLMAP_SRC_SFM_INCREMENTAL_TRIANGULATOR_H_

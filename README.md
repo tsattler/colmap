@@ -7,20 +7,29 @@ About
 COLMAP is a general-purpose Structure-from-Motion (SfM) and Multi-View Stereo
 (MVS) pipeline with a graphical and command-line interface. It offers a wide
 range of features for reconstruction of ordered and unordered image collections.
-The software is licensed under the GNU General Public License. If you use this
-project for your research, please cite:
+The software is licensed under the new BSD license. If you use this project for
+your research, please cite:
 
     @inproceedings{schoenberger2016sfm,
-        author = {Sch\"{o}nberger, Johannes Lutz and Frahm, Jan-Michael},
-        title = {Structure-from-Motion Revisited},
-        booktitle={IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+        author={Sch\"{o}nberger, Johannes Lutz and Frahm, Jan-Michael},
+        title={Structure-from-Motion Revisited},
+        booktitle={Conference on Computer Vision and Pattern Recognition (CVPR)},
         year={2016},
     }
 
     @inproceedings{schoenberger2016mvs,
-        author = {Sch\"{o}nberger, Johannes Lutz and Zheng, Enliang and Pollefeys, Marc and Frahm, Jan-Michael},
-        title = {Pixelwise View Selection for Unstructured Multi-View Stereo},
+        author={Sch\"{o}nberger, Johannes Lutz and Zheng, Enliang and Pollefeys, Marc and Frahm, Jan-Michael},
+        title={Pixelwise View Selection for Unstructured Multi-View Stereo},
         booktitle={European Conference on Computer Vision (ECCV)},
+        year={2016},
+    }
+
+If you use the image retrieval / vocabulary tree engine, please also cite:
+
+    @inproceedings{schoenberger2016vote,
+        author={Sch\"{o}nberger, Johannes Lutz and Price, True and Sattler, Torsten and Frahm, Jan-Michael and Pollefeys, Marc},
+        title={A Vote-and-Verify Strategy for Fast Spatial Verification in Image Retrieval},
+        booktitle={Asian Conference on Computer Vision (ACCV)},
         year={2016},
     }
 
@@ -32,19 +41,21 @@ COLMAP, please also cite the original authors, as specified in the source code.
 Download
 --------
 
-Executables and other resources can be downloaded from
-http://people.inf.ethz.ch/jschoenb/colmap/.
-
+Executables for Windows and Mac and other resources can be downloaded from
+https://demuc.de/colmap/. Executables for Linux/Unix/BSD are available at
+https://repology.org/metapackage/colmap/versions. To build COLMAP from source,
+please see https://colmap.github.io/install.html.
 
 Getting Started
 ---------------
 
-1. Download the pre-built binaries from
-   http://people.inf.ethz.ch/jschoenb/colmap/ or build the library manually as
-   described in the documentation.
-2. Download one of the provided datasets at
-   http://people.inf.ethz.ch/jschoenb/colmap/datasets/ or use your own images.
-3. Watch the short introductory video at
+1. Download the pre-built binaries from https://demuc.de/colmap/ or build the
+   library manually as described in the documentation.
+2. Download one of the provided datasets at https://demuc.de/colmap/datasets/
+   or use your own images.
+3. Use the **automatic reconstruction** to easily build models
+   with a single click or command.
+4. Watch the short introductory video at
    https://www.youtube.com/watch?v=P-EC0DzeVEU or read the tutorial
    in the documentation at https://colmap.github.io/ for more details.
 
@@ -67,10 +78,9 @@ bug reports, feature requests/additions, etc.
 Acknowledgments
 ---------------
 
-The library was written by Johannes L. Schönberger
-(http://people.inf.ethz.ch/jschoenb/). Funding was provided by his PhD advisor
-Jan-Michael Frahm (http://frahm.web.unc.edu/) through the grants NSF No.
-IIS-1349074, No. CNS-1405847, and the MITRE Corp.
+The library was written by Johannes L. Schönberger (https://demuc.de/). Funding
+was provided by his PhD advisors Jan-Michael Frahm (http://frahm.web.unc.edu/)
+and Marc Pollefeys (https://www.inf.ethz.ch/personal/marc.pollefeys/).
 
 
 Contribution
@@ -79,48 +89,42 @@ Contribution
 Contributions (bug reports, bug fixes, improvements, etc.) are very welcome and
 should be submitted in the form of new issues and/or pull requests on GitHub.
 
-Please, adhere to the Google coding style guide:
-
-    http://google-styleguide.googlecode.com/svn/trunk/cppguide.html
-
-by using the provided ".clang-format" file.
-
-Document functions, methods, classes, etc. with inline documentation strings
-describing the API, using the following format:
-
-    // Short description.
-    //
-    // Longer description with a few sentences and multiple lines.
-    //
-    // @param parameter1            Description for parameter 1.
-    // @param parameter2            Description for parameter 2.
-    //
-    // @return                      Description of optional return value.
-
-Add unit tests for all newly added code and make sure that algorithmic
-"improvements" generalize and actually improve the results of the pipeline on a
-variety of datasets.
-
 
 License
 -------
 
-The software is licensed under the GNU General Public License v3 or later. If
-you are interested in licensing the software for commercial purposes, without
-disclosing your modifications, please contact the authors.
+The COLMAP library is licensed under the new BSD license. Note that this text
+refers only to the license for COLMAP itself, independent of its optional
+dependencies, which are separately licensed. Building COLMAP with these optional
+dependencies may affect the resulting COLMAP license.
 
-    COLMAP - Structure-from-Motion and Multi-View Stereo.
-    Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+    Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+    All rights reserved.
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+        * Redistributions of source code must retain the above copyright
+          notice, this list of conditions and the following disclaimer.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+        * Redistributions in binary form must reproduce the above copyright
+          notice, this list of conditions and the following disclaimer in the
+          documentation and/or other materials provided with the distribution.
+
+        * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+          its contributors may be used to endorse or promote products derived
+          from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+    ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+    LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+    INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+    CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+    POSSIBILITY OF SUCH DAMAGE.
+
+    Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)

@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "util/threading.h"
 
@@ -25,7 +40,9 @@ Thread::Thread()
       stopped_(false),
       paused_(false),
       pausing_(false),
-      finished_(false) {
+      finished_(false),
+      setup_(false),
+      setup_valid_(false) {
   RegisterCallback(STARTED_CALLBACK);
   RegisterCallback(FINISHED_CALLBACK);
 }
@@ -41,6 +58,8 @@ void Thread::Start() {
   paused_ = false;
   pausing_ = false;
   finished_ = false;
+  setup_ = false;
+  setup_valid_ = false;
 }
 
 void Thread::Stop() {
@@ -112,6 +131,26 @@ void Thread::Callback(const int id) const {
   }
 }
 
+std::thread::id Thread::GetThreadId() const {
+  return std::this_thread::get_id();
+}
+
+void Thread::SignalValidSetup() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  CHECK(!setup_);
+  setup_ = true;
+  setup_valid_ = true;
+  setup_condition_.notify_all();
+}
+
+void Thread::SignalInvalidSetup() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  CHECK(!setup_);
+  setup_ = true;
+  setup_valid_ = false;
+  setup_condition_.notify_all();
+}
+
 const class Timer& Thread::GetTimer() const { return timer_; }
 
 void Thread::BlockIfPaused() {
@@ -123,6 +162,14 @@ void Thread::BlockIfPaused() {
     pausing_ = false;
     timer_.Resume();
   }
+}
+
+bool Thread::CheckValidSetup() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!setup_) {
+    setup_condition_.wait(lock);
+  }
+  return setup_valid_;
 }
 
 void Thread::RunFunc() {
@@ -138,17 +185,10 @@ void Thread::RunFunc() {
 
 ThreadPool::ThreadPool(const int num_threads)
     : stopped_(false), num_active_workers_(0) {
-  int num_effective_threads = num_threads;
-  if (num_threads == kMaxNumThreads) {
-    num_effective_threads = std::thread::hardware_concurrency();
-  }
-
-  if (num_effective_threads <= 0) {
-    num_effective_threads = 1;
-  }
-
-  for (int i = 0; i < num_effective_threads; ++i) {
-    std::function<void(void)> worker = std::bind(&ThreadPool::WorkerFunc, this);
+  const int num_effective_threads = GetEffectiveNumThreads(num_threads);
+  for (int index = 0; index < num_effective_threads; ++index) {
+    std::function<void(void)> worker =
+        std::bind(&ThreadPool::WorkerFunc, this, index);
     workers_.emplace_back(worker);
   }
 }
@@ -158,30 +198,40 @@ ThreadPool::~ThreadPool() { Stop(); }
 void ThreadPool::Stop() {
   {
     std::unique_lock<std::mutex> lock(mutex_);
+
     if (stopped_) {
       return;
     }
-    stopped_ = true;
-  }
 
-  {
+    stopped_ = true;
+
     std::queue<std::function<void()>> empty_tasks;
     std::swap(tasks_, empty_tasks);
   }
 
   task_condition_.notify_all();
+
   for (auto& worker : workers_) {
     worker.join();
   }
+
+  finished_condition_.notify_all();
 }
 
 void ThreadPool::Wait() {
   std::unique_lock<std::mutex> lock(mutex_);
-  finished_condition_.wait(
-      lock, [this]() { return tasks_.empty() && num_active_workers_ == 0; });
+  if (!tasks_.empty() || num_active_workers_ > 0) {
+    finished_condition_.wait(
+        lock, [this]() { return tasks_.empty() && num_active_workers_ == 0; });
+  }
 }
 
-void ThreadPool::WorkerFunc() {
+void ThreadPool::WorkerFunc(const int index) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    thread_id_to_index_.emplace(GetThreadId(), index);
+  }
+
   while (true) {
     std::function<void()> task;
     {
@@ -198,9 +248,35 @@ void ThreadPool::WorkerFunc() {
 
     task();
 
-    num_active_workers_ -= 1;
-    finished_condition_.notify_one();
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      num_active_workers_ -= 1;
+    }
+
+    finished_condition_.notify_all();
   }
+}
+
+std::thread::id ThreadPool::GetThreadId() const {
+  return std::this_thread::get_id();
+}
+
+int ThreadPool::GetThreadIndex() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  return thread_id_to_index_.at(GetThreadId());
+}
+
+int GetEffectiveNumThreads(const int num_threads) {
+  int num_effective_threads = num_threads;
+  if (num_threads <= 0) {
+    num_effective_threads = std::thread::hardware_concurrency();
+  }
+
+  if (num_effective_threads <= 0) {
+    num_effective_threads = 1;
+  }
+
+  return num_effective_threads;
 }
 
 }  // namespace colmap

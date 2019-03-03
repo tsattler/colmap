@@ -1,18 +1,33 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/render_options_widget.h"
 
@@ -20,11 +35,12 @@ namespace colmap {
 
 RenderOptionsWidget::RenderOptionsWidget(QWidget* parent,
                                          OptionManager* options,
-                                         OpenGLWindow* opengl_window)
+                                         ModelViewerWidget* model_viewer_widget)
     : OptionsWidget(parent),
       counter(0),
       automatic_update(true),
-      opengl_window_(opengl_window),
+      options_(options),
+      model_viewer_widget_(model_viewer_widget),
       point3D_colormap_scale_(1),
       point3D_colormap_min_q_(0.02),
       point3D_colormap_max_q_(0.98) {
@@ -36,20 +52,54 @@ RenderOptionsWidget::RenderOptionsWidget(QWidget* parent,
   setWindowModality(Qt::NonModal);
   setWindowTitle("Render options");
 
-  AddOptionDouble(&options->render_options->max_error, "Max. error [px]");
-  AddOptionInt(&options->render_options->min_track_len, "Min. track length", 0);
+  QLabel* point_size_label = new QLabel(tr("Point size"), this);
+  point_size_label->setFont(font());
+  point_size_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  QHBoxLayout* point_size_layout = new QHBoxLayout();
+  QPushButton* decrease_point_size = new QPushButton("-", this);
+  connect(decrease_point_size, &QPushButton::released, this,
+          &RenderOptionsWidget::DecreasePointSize);
+  QPushButton* increase_point_size = new QPushButton("+", this);
+  connect(increase_point_size, &QPushButton::released, this,
+          &RenderOptionsWidget::IncreasePointSize);
+  point_size_layout->addWidget(decrease_point_size);
+  point_size_layout->addWidget(increase_point_size);
+  grid_layout_->addWidget(point_size_label, grid_layout_->rowCount(), 0);
+  grid_layout_->addLayout(point_size_layout, grid_layout_->rowCount() - 1, 1);
+
+  QLabel* camera_size_label = new QLabel(tr("Camera size"), this);
+  camera_size_label->setFont(font());
+  camera_size_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  QHBoxLayout* camera_size_layout = new QHBoxLayout();
+  QPushButton* decrease_camera_size = new QPushButton("-", this);
+  connect(decrease_camera_size, &QPushButton::released, this,
+          &RenderOptionsWidget::DecreaseCameraSize);
+  QPushButton* increase_camera_size = new QPushButton("+", this);
+  connect(increase_camera_size, &QPushButton::released, this,
+          &RenderOptionsWidget::IncreaseCameraSize);
+  camera_size_layout->addWidget(decrease_camera_size);
+  camera_size_layout->addWidget(increase_camera_size);
+  grid_layout_->addWidget(camera_size_label, grid_layout_->rowCount(), 0);
+  grid_layout_->addLayout(camera_size_layout, grid_layout_->rowCount() - 1, 1);
 
   AddSpacer();
 
   projection_cb_ = new QComboBox(this);
-  projection_cb_->addItem("Orthographic");
   projection_cb_->addItem("Perspective");
+  projection_cb_->addItem("Orthographic");
 
   QLabel* projection_label = new QLabel(tr("Projection"), this);
   projection_label->setFont(font());
   projection_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   grid_layout_->addWidget(projection_label, grid_layout_->rowCount(), 0);
   grid_layout_->addWidget(projection_cb_, grid_layout_->rowCount() - 1, 1);
+
+  AddSpacer();
+
+  AddOptionDouble(&options->render->max_error, "Max. error [px]");
+  AddOptionInt(&options->render->min_track_len, "Min. track length", 0);
+
+  AddSpacer();
 
   point3D_colormap_cb_ = new QComboBox(this);
   point3D_colormap_cb_->addItem("Photometric");
@@ -86,15 +136,12 @@ RenderOptionsWidget::RenderOptionsWidget(QWidget* parent,
 
   AddSpacer();
 
-  AddOptionBool(&options->render_options->adapt_refresh_rate,
-                "Adaptive refresh rate");
-  AddOptionInt(&options->render_options->refresh_rate, "Refresh rate [frames]",
-               1);
+  AddOptionBool(&options->render->adapt_refresh_rate, "Adaptive refresh rate");
+  AddOptionInt(&options->render->refresh_rate, "Refresh rate [frames]", 1);
 
   AddSpacer();
 
-  AddOptionBool(&options->render_options->image_connections,
-                "Image connections");
+  AddOptionBool(&options->render->image_connections, "Image connections");
 
   AddSpacer();
 
@@ -116,25 +163,24 @@ void RenderOptionsWidget::Apply() {
   ApplyColormap();
   ApplyBackgroundColor();
 
-  opengl_window_->Upload();
+  model_viewer_widget_->ReloadReconstruction();
 }
 
 void RenderOptionsWidget::ApplyProjection() {
-  OpenGLWindow::ProjectionType projection_type;
-
   switch (projection_cb_->currentIndex()) {
     case 0:
-      projection_type = OpenGLWindow::ProjectionType::ORTHOGRAPHIC;
+      options_->render->projection_type =
+          RenderOptions::ProjectionType::PERSPECTIVE;
       break;
     case 1:
-      projection_type = OpenGLWindow::ProjectionType::PERSPECTIVE;
+      options_->render->projection_type =
+          RenderOptions::ProjectionType::ORTHOGRAPHIC;
       break;
     default:
-      projection_type = OpenGLWindow::ProjectionType::ORTHOGRAPHIC;
+      options_->render->projection_type =
+          RenderOptions::ProjectionType::PERSPECTIVE;
       break;
   }
-
-  opengl_window_->SetProjectionType(projection_type);
 }
 
 void RenderOptionsWidget::ApplyColormap() {
@@ -162,11 +208,12 @@ void RenderOptionsWidget::ApplyColormap() {
   point3D_color_map->min_q = static_cast<float>(point3D_colormap_min_q_);
   point3D_color_map->max_q = static_cast<float>(point3D_colormap_max_q_);
 
-  opengl_window_->SetPointColormap(point3D_color_map);
+  model_viewer_widget_->SetPointColormap(point3D_color_map);
 }
 
 void RenderOptionsWidget::ApplyBackgroundColor() {
-  opengl_window_->SetBackgroundColor(bg_color_[0], bg_color_[1], bg_color_[2]);
+  model_viewer_widget_->SetBackgroundColor(bg_color_[0], bg_color_[1],
+                                           bg_color_[2]);
 }
 
 void RenderOptionsWidget::SelectBackgroundColor() {
@@ -176,6 +223,26 @@ void RenderOptionsWidget::SelectBackgroundColor() {
   bg_red_spinbox_->setValue(selected_color.red() / 255.0);
   bg_green_spinbox_->setValue(selected_color.green() / 255.0);
   bg_blue_spinbox_->setValue(selected_color.blue() / 255.0);
+}
+
+void RenderOptionsWidget::IncreasePointSize() {
+  const float kDelta = 100;
+  model_viewer_widget_->ChangePointSize(kDelta);
+}
+
+void RenderOptionsWidget::DecreasePointSize() {
+  const float kDelta = -100;
+  model_viewer_widget_->ChangePointSize(kDelta);
+}
+
+void RenderOptionsWidget::IncreaseCameraSize() {
+  const float kDelta = 100;
+  model_viewer_widget_->ChangeCameraSize(kDelta);
+}
+
+void RenderOptionsWidget::DecreaseCameraSize() {
+  const float kDelta = -100;
+  model_viewer_widget_->ChangeCameraSize(kDelta);
 }
 
 }  // namespace colmap

@@ -1,29 +1,52 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
-#define BOOST_TEST_MAIN
-#define BOOST_TEST_MODULE "base/pose"
-#include <boost/test/unit_test.hpp>
+#define TEST_NAME "base/pose"
+#include "util/testing.h"
 
 #include <Eigen/Core>
 
 #include "base/pose.h"
 #include "base/projection.h"
+#include "util/math.h"
 
 using namespace colmap;
+
+BOOST_AUTO_TEST_CASE(TestCrossProductMatrix) {
+  BOOST_CHECK_EQUAL(CrossProductMatrix(Eigen::Vector3d(0, 0, 0)),
+                    Eigen::Matrix3d::Zero());
+  Eigen::Matrix3d ref_matrix;
+  ref_matrix << 0, -3, 2, 3, 0, -1, -2, 1, 0;
+  BOOST_CHECK_EQUAL(CrossProductMatrix(Eigen::Vector3d(1, 2, 3)), ref_matrix);
+}
 
 BOOST_AUTO_TEST_CASE(TestEulerAnglesX) {
   const double rx = 0.3;
@@ -102,10 +125,10 @@ BOOST_AUTO_TEST_CASE(TestInvertQuaternion) {
   BOOST_CHECK_EQUAL(InvertQuaternion(ComposeIdentityQuaternion()),
                     Eigen::Vector4d(1, -0, -0, -0));
   BOOST_CHECK_EQUAL(InvertQuaternion(Eigen::Vector4d(2, 0, 0, 0)),
-                    Eigen::Vector4d(1, -0, -0, -0));
-  BOOST_CHECK(
-      InvertQuaternion(InvertQuaternion(Eigen::Vector4d(0.1, 0.2, 0.3, 0.4)))
-          .isApprox(NormalizeQuaternion(Eigen::Vector4d(0.1, 0.2, 0.3, 0.4))));
+                    Eigen::Vector4d(2, -0, -0, -0));
+  BOOST_CHECK_EQUAL(
+      InvertQuaternion(InvertQuaternion(Eigen::Vector4d(0.1, 0.2, 0.3, 0.4))),
+      Eigen::Vector4d(0.1, 0.2, 0.3, 0.4));
 }
 
 BOOST_AUTO_TEST_CASE(TestConcatenateQuaternions) {
@@ -152,7 +175,7 @@ BOOST_AUTO_TEST_CASE(TestAverageQuaternions) {
   std::vector<Eigen::Vector4d> qvecs;
   std::vector<double> weights;
 
-  qvecs = {ComposeIdentityQuaternion()};
+  qvecs = {{ComposeIdentityQuaternion()}};
   weights = {1.0};
   BOOST_CHECK_EQUAL(AverageQuaternions(qvecs, weights),
                     ComposeIdentityQuaternion());
@@ -188,6 +211,32 @@ BOOST_AUTO_TEST_CASE(TestAverageQuaternions) {
                   .isApprox(Eigen::Vector4d(0.850651, 0.525731, 0, 0), 1e-6));
 }
 
+BOOST_AUTO_TEST_CASE(TestRotationFromUnitVectors) {
+  BOOST_CHECK_EQUAL(RotationFromUnitVectors(Eigen::Vector3d(0, 0, 1),
+                                            Eigen::Vector3d(0, 0, 1)),
+                    Eigen::Matrix3d::Identity());
+  BOOST_CHECK_EQUAL(RotationFromUnitVectors(Eigen::Vector3d(0, 0, 2),
+                                            Eigen::Vector3d(0, 0, 2)),
+                    Eigen::Matrix3d::Identity());
+
+  Eigen::Matrix3d ref_matrix1;
+  ref_matrix1 << 1, 0, 0, 0, 0, 1, 0, -1, 0;
+  BOOST_CHECK_EQUAL(RotationFromUnitVectors(Eigen::Vector3d(0, 0, 1),
+                                            Eigen::Vector3d(0, 1, 0)),
+                    ref_matrix1);
+  BOOST_CHECK_EQUAL(ref_matrix1 * Eigen::Vector3d(0, 0, 1),
+                    Eigen::Vector3d(0, 1, 0));
+  BOOST_CHECK_EQUAL(RotationFromUnitVectors(Eigen::Vector3d(0, 0, 2),
+                                            Eigen::Vector3d(0, 2, 0)),
+                    ref_matrix1);
+  BOOST_CHECK_EQUAL(ref_matrix1 * Eigen::Vector3d(0, 0, 2),
+                    Eigen::Vector3d(0, 2, 0));
+
+  BOOST_CHECK_EQUAL(RotationFromUnitVectors(Eigen::Vector3d(0, 0, 1),
+                                            Eigen::Vector3d(0, 0, -1)),
+                    Eigen::Matrix3d::Identity());
+}
+
 BOOST_AUTO_TEST_CASE(TestPoseFromProjectionMatrix) {
   const Eigen::Vector4d qvec = Eigen::Vector4d::Random().normalized();
   const Eigen::Vector3d tvec(3, 4, 5);
@@ -202,7 +251,7 @@ BOOST_AUTO_TEST_CASE(TestPoseFromProjectionParameters) {
   const Eigen::Vector3d tvec(3, 4, 5);
   const Eigen::Matrix3x4d proj_matrix = ComposeProjectionMatrix(qvec, tvec);
   const Eigen::Matrix3x4d inv_proj_matrix = InvertProjectionMatrix(proj_matrix);
-  const Eigen::Vector3d pose = ProjectionCenterFromParameters(qvec, tvec);
+  const Eigen::Vector3d pose = ProjectionCenterFromPose(qvec, tvec);
   BOOST_CHECK((inv_proj_matrix.rightCols<1>() - pose).norm() < 1e-6);
 }
 
@@ -284,19 +333,16 @@ BOOST_AUTO_TEST_CASE(TestConcatenatePoses) {
 BOOST_AUTO_TEST_CASE(TestInvertPose) {
   Eigen::Vector4d inv_qvec;
   Eigen::Vector3d inv_tvec;
-
   InvertPose(ComposeIdentityQuaternion(), Eigen::Vector3d(0, 0, 0), &inv_qvec,
              &inv_tvec);
   BOOST_CHECK_EQUAL(inv_qvec, ComposeIdentityQuaternion());
   BOOST_CHECK_EQUAL(inv_tvec, Eigen::Vector3d(0, 0, 0));
-
   InvertPose(Eigen::Vector4d(0, 1, 2, 3), Eigen::Vector3d(0, 1, 2), &inv_qvec,
              &inv_tvec);
   Eigen::Vector4d inv_inv_qvec;
   Eigen::Vector3d inv_inv_tvec;
   InvertPose(inv_qvec, inv_tvec, &inv_inv_qvec, &inv_inv_tvec);
-  BOOST_CHECK(
-      inv_inv_qvec.isApprox(NormalizeQuaternion(Eigen::Vector4d(0, 1, 2, 3))));
+  BOOST_CHECK_EQUAL(inv_inv_qvec, Eigen::Vector4d(0, 1, 2, 3));
   BOOST_CHECK(inv_inv_tvec.isApprox(Eigen::Vector3d(0, 1, 2)));
 }
 

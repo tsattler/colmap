@@ -1,23 +1,38 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/feature_extraction_widget.h"
 
 #include "base/camera_models.h"
-#include "base/feature_extraction.h"
+#include "feature/extraction.h"
 #include "ui/options_widget.h"
 #include "ui/qt_utils.h"
 #include "ui/thread_control_widget.h"
@@ -40,10 +55,6 @@ class SIFTExtractionWidget : public ExtractionWidget {
   SIFTExtractionWidget(QWidget* parent, OptionManager* options);
 
   void Run() override;
-
- private:
-  QRadioButton* sift_gpu_;
-  QRadioButton* sift_cpu_;
 };
 
 class ImportFeaturesWidget : public ExtractionWidget {
@@ -64,51 +75,42 @@ ExtractionWidget::ExtractionWidget(QWidget* parent, OptionManager* options)
 SIFTExtractionWidget::SIFTExtractionWidget(QWidget* parent,
                                            OptionManager* options)
     : ExtractionWidget(parent, options) {
-  sift_gpu_ = new QRadioButton(tr("GPU"), this);
-  sift_gpu_->setChecked(true);
-  grid_layout_->addWidget(sift_gpu_);
-  grid_layout_->addWidget(sift_gpu_, grid_layout_->rowCount(), 1);
+  AddOptionInt(&options->sift_extraction->max_image_size, "max_image_size");
+  AddOptionInt(&options->sift_extraction->max_num_features, "max_num_features");
+  AddOptionInt(&options->sift_extraction->first_octave, "first_octave", -5);
+  AddOptionInt(&options->sift_extraction->num_octaves, "num_octaves");
+  AddOptionInt(&options->sift_extraction->octave_resolution,
+               "octave_resolution");
+  AddOptionDouble(&options->sift_extraction->peak_threshold, "peak_threshold",
+                  0.0, 1e7, 0.00001, 5);
+  AddOptionDouble(&options->sift_extraction->edge_threshold, "edge_threshold");
+  AddOptionBool(&options->sift_extraction->estimate_affine_shape,
+                "estimate_affine_shape");
+  AddOptionInt(&options->sift_extraction->max_num_orientations,
+               "max_num_orientations");
+  AddOptionBool(&options->sift_extraction->upright, "upright");
+  AddOptionBool(&options->sift_extraction->domain_size_pooling,
+                "domain_size_pooling");
+  AddOptionDouble(&options->sift_extraction->dsp_min_scale, "dsp_min_scale",
+                  0.0, 1e7, 0.00001, 5);
+  AddOptionDouble(&options->sift_extraction->dsp_max_scale, "dsp_max_scale",
+                  0.0, 1e7, 0.00001, 5);
+  AddOptionInt(&options->sift_extraction->dsp_num_scales, "dsp_num_scales", 1);
 
-  sift_cpu_ = new QRadioButton(tr("CPU"), this);
-  grid_layout_->addWidget(sift_cpu_, grid_layout_->rowCount(), 1);
-
-  AddSpacer();
-
-  SiftOptions& sift_options = options->extraction_options->sift;
-  AddOptionInt(&sift_options.max_image_size, "max_image_size");
-  AddOptionInt(&sift_options.max_num_features, "max_num_features");
-  AddOptionInt(&sift_options.first_octave, "first_octave", -5);
-  AddOptionInt(&sift_options.num_octaves, "num_octaves");
-  AddOptionInt(&sift_options.octave_resolution, "octave_resolution");
-  AddOptionDouble(&sift_options.peak_threshold, "peak_threshold", 0.0, 1e7,
-                  0.0001, 4);
-  AddOptionDouble(&sift_options.edge_threshold, "edge_threshold");
-  AddOptionInt(&sift_options.max_num_orientations, "max_num_orientations");
-  AddOptionBool(&sift_options.upright, "upright");
-
-  SiftCPUFeatureExtractor::Options& cpu_options =
-      options->extraction_options->cpu;
-  AddOptionInt(&cpu_options.num_threads, "cpu_num_threads", -1);
-  AddOptionInt(&cpu_options.batch_size_factor, "cpu_batch_size_factor");
+  AddOptionInt(&options->sift_extraction->num_threads, "num_threads", -1);
+  AddOptionBool(&options->sift_extraction->use_gpu, "use_gpu");
+  AddOptionText(&options->sift_extraction->gpu_index, "gpu_index");
 }
 
 void SIFTExtractionWidget::Run() {
   WriteOptions();
 
-  ImageReader::Options reader_options = options_->extraction_options->reader;
+  ImageReaderOptions reader_options = *options_->image_reader;
   reader_options.database_path = *options_->database_path;
   reader_options.image_path = *options_->image_path;
 
-  Thread* extractor = nullptr;
-  if (sift_gpu_->isChecked()) {
-    extractor = new SiftGPUFeatureExtractor(reader_options,
-                                            options_->extraction_options->sift);
-  } else {
-    extractor = new SiftCPUFeatureExtractor(reader_options,
-                                            options_->extraction_options->sift,
-                                            options_->extraction_options->cpu);
-  }
-
+  Thread* extractor =
+      new SiftFeatureExtractor(reader_options, *options_->sift_extraction);
   thread_control_widget_->StartThread("Extracting...", true, extractor);
 }
 
@@ -121,12 +123,12 @@ ImportFeaturesWidget::ImportFeaturesWidget(QWidget* parent,
 void ImportFeaturesWidget::Run() {
   WriteOptions();
 
-  if (!boost::filesystem::is_directory(import_path_)) {
+  if (!ExistsDir(import_path_)) {
     QMessageBox::critical(this, "", tr("Path is not a directory"));
     return;
   }
 
-  ImageReader::Options reader_options = options_->extraction_options->reader;
+  ImageReaderOptions reader_options = *options_->image_reader;
   reader_options.database_path = *options_->database_path;
   reader_options.image_path = *options_->image_path;
 
@@ -171,35 +173,35 @@ QGroupBox* FeatureExtractionWidget::CreateCameraModelBox() {
 
 #undef CAMERA_MODEL_CASE
 
-  camera_params_exif_rb_ =
-      new QRadioButton(tr("Camera parameters from EXIF"), this);
+  camera_params_exif_rb_ = new QRadioButton(tr("Parameters from EXIF"), this);
   camera_params_exif_rb_->setChecked(true);
 
-  camera_params_custom_rb_ =
-      new QRadioButton(tr("Custom camera parameters"), this);
+  camera_params_custom_rb_ = new QRadioButton(tr("Custom parameters"), this);
 
   camera_params_info_ = new QLabel(tr(""), this);
   QPalette pal = QPalette(camera_params_info_->palette());
   pal.setColor(QPalette::WindowText, QColor(130, 130, 130));
   camera_params_info_->setPalette(pal);
-  camera_params_info_->setAlignment(Qt::AlignRight);
 
   camera_params_text_ = new QLineEdit(this);
   camera_params_text_->setEnabled(false);
-  camera_params_text_->setAlignment(Qt::AlignRight);
 
-  single_camera_cb_ = new QCheckBox("Single camera for all images", this);
+  single_camera_cb_ = new QCheckBox("Shared for all images", this);
   single_camera_cb_->setChecked(false);
+
+  single_camera_per_folder_cb_ = new QCheckBox("Shared per sub-folder", this);
+  single_camera_per_folder_cb_->setChecked(false);
 
   QGroupBox* box = new QGroupBox(tr("Camera model"), this);
 
   QVBoxLayout* vbox = new QVBoxLayout(box);
   vbox->addWidget(camera_model_cb_);
+  vbox->addWidget(camera_params_info_);
+  vbox->addWidget(single_camera_cb_);
+  vbox->addWidget(single_camera_per_folder_cb_);
   vbox->addWidget(camera_params_exif_rb_);
   vbox->addWidget(camera_params_custom_rb_);
-  vbox->addWidget(camera_params_info_);
   vbox->addWidget(camera_params_text_);
-  vbox->addWidget(single_camera_cb_);
   vbox->addStretch(1);
 
   box->setLayout(vbox);
@@ -229,7 +231,7 @@ void FeatureExtractionWidget::hideEvent(QHideEvent* event) {
 
 void FeatureExtractionWidget::ReadOptions() {
   const auto camera_code =
-      CameraModelNameToId(options_->extraction_options->reader.camera_model);
+      CameraModelNameToId(options_->image_reader->camera_model);
   for (size_t i = 0; i < camera_model_ids_.size(); ++i) {
     if (camera_model_ids_[i] == camera_code) {
       SelectCameraModel(i);
@@ -237,25 +239,27 @@ void FeatureExtractionWidget::ReadOptions() {
       break;
     }
   }
-  single_camera_cb_->setChecked(
-      options_->extraction_options->reader.single_camera);
-  camera_params_text_->setText(QString::fromStdString(
-      options_->extraction_options->reader.camera_params));
+  single_camera_cb_->setChecked(options_->image_reader->single_camera);
+  single_camera_per_folder_cb_->setChecked(
+      options_->image_reader->single_camera_per_folder);
+  camera_params_text_->setText(
+      QString::fromStdString(options_->image_reader->camera_params));
 }
 
 void FeatureExtractionWidget::WriteOptions() {
-  options_->extraction_options->reader.camera_model =
+  options_->image_reader->camera_model =
       CameraModelIdToName(camera_model_ids_[camera_model_cb_->currentIndex()]);
-  options_->extraction_options->reader.single_camera =
-      single_camera_cb_->isChecked();
-  options_->extraction_options->reader.camera_params =
+  options_->image_reader->single_camera = single_camera_cb_->isChecked();
+  options_->image_reader->single_camera_per_folder =
+      single_camera_per_folder_cb_->isChecked();
+  options_->image_reader->camera_params =
       camera_params_text_->text().toUtf8().constData();
 }
 
 void FeatureExtractionWidget::SelectCameraModel(const int idx) {
   const int code = camera_model_ids_[idx];
-  camera_params_info_->setText(
-      QString::fromStdString(CameraModelParamsInfo(code)));
+  camera_params_info_->setText(QString::fromStdString(StringPrintf(
+      "<small>Parameters: %s</small>", CameraModelParamsInfo(code).c_str())));
 }
 
 void FeatureExtractionWidget::Extract() {
@@ -268,10 +272,15 @@ void FeatureExtractionWidget::Extract() {
 
   WriteOptions();
 
+  if (!ExistsCameraModelWithName(options_->image_reader->camera_model)) {
+    QMessageBox::critical(this, "", tr("Camera model does not exist"));
+    return;
+  }
+
   const std::vector<double> camera_params =
-      CSVToVector<double>(options_->extraction_options->reader.camera_params);
+      CSVToVector<double>(options_->image_reader->camera_params);
   const auto camera_code =
-      CameraModelNameToId(options_->extraction_options->reader.camera_model);
+      CameraModelNameToId(options_->image_reader->camera_model);
 
   if (camera_params_custom_rb_->isChecked() &&
       !CameraModelVerifyParams(camera_code, camera_params)) {

@@ -3,10 +3,64 @@
 Tutorial
 ========
 
-3D reconstruction from images traditionally first recovers a sparse
+This tutorial covers the topic of image-based 3D reconstruction by demonstrating
+the individual processing steps in COLMAP. If you are interested in a more
+general and mathematical introduction to the topic of image-based 3D
+reconstruction, please also refer to the `CVPR 2017 Tutorial on Large-scale 3D
+Modeling from Crowdsourced Data <https://demuc.de/tutorials/cvpr2017/>`_.
+
+Image-based 3D reconstruction from images traditionally first recovers a sparse
 representation of the scene and the camera poses of the input images using
 Structure-from-Motion. This output then serves as the input to Multi-View Stereo
 to recover a dense representation of the scene.
+
+
+.. _quick-start:
+
+Quickstart
+----------
+
+First, start the graphical user interface of COLMAP, as described :ref:`here
+<gui>`. COLMAP provides an automatic reconstruction tool that simply takes
+a folder of input images and produces a sparse and dense reconstruction in a
+workspace folder. Click ``Reconstruction > Automatic Reconstruction`` in the GUI
+and specify the relevant options. The output is written to the workspace folder.
+For example, if your images are located in ``path/to/project/images``, you could
+select ``path/to/project`` as a workspace folder and after running the automatic
+reconstruction tool, the folder would look similar to this::
+
+    +── images
+    │   +── image1.jpg
+    │   +── image2.jpg
+    │   +── ...
+    +── sparse
+    │   +── 0
+    │   │   +── cameras.bin
+    │   │   +── images.bin
+    │   │   +── points3D.bin
+    │   +── ...
+    +── dense
+    │   +── 0
+    │   │   +── images
+    │   │   +── sparse
+    │   │   +── stereo
+    │   │   +── fused.ply
+    │   │   +── meshed-poisson.ply
+    │   │   +── meshed-delaunay.ply
+    │   +── ...
+    +── database.db
+
+Here, the ``path/to/project/sparse`` contains the sparse models for all
+reconstructed components, while ``path/to/project/dense`` contains their
+corresponding dense models. The dense point cloud ``fused.ply`` can be imported
+in COLMAP using ``File > Import model from ...``, while the dense mesh must be
+visualized with an external viewer such as Meshlab.
+
+The following sections give general recommendations and describe the
+reconstruction process in more detail, if you need more control over the
+reconstruction process/parameters or if you are interested in the underlying
+technology in COLMAP.
+
 
 Structure-from-Motion
 ---------------------
@@ -30,7 +84,8 @@ this process into three stages:
 
 COLMAP reflects these stages in different modules, that can be combined
 depending on the application. More information on Structure-from-Motion in
-general and the algorithms in COLMAP can be found in [schoenberger16sfm]_.
+general and the algorithms in COLMAP can be found in [schoenberger16sfm]_ and
+[schoenberger16mvs]_.
 
 If you have control over the picture capture process, please follow these
 guidelines for optimal reconstruction results:
@@ -50,7 +105,9 @@ guidelines for optimal reconstruction results:
 - Capture images from **different viewpoints**. Do not take images from the
   same location by only rotating the camera, e.g., make a few steps after each
   shot. At the same time, try to have enough images from a relatively similar
-  viewpoint.
+  viewpoint. Note that more images is not necessarily better and might lead to a
+  slow reconstruction process. If you use a video as input, consider
+  down-sampling the frame rate.
 
 
 Multi-View Stereo
@@ -70,11 +127,12 @@ Preface
 
 COLMAP requires only few steps to do a standard reconstruction for a general
 user. For more experienced users, the program exposes many different parameters,
-only some of which are intuitive to a beginner. The program should work without
-the need to modify any parameters. The defaults are chosen as a trade-off
-between reconstruction robustness/quality and speed. If in doubt what setting to
-choose, stick to the defaults. The source code contains more documentation about
-all parameters.
+only some of which are intuitive to a beginner. The program should usually work
+without the need to modify any parameters. The defaults are chosen as a trade-
+off between reconstruction robustness/quality and speed. You can set "optimal"
+options for different reconstruction scenarios by choosing ``Extras > Set
+options for ... data``. If in doubt what settings to choose, stick to the
+defaults. The source code contains more documentation about all parameters.
 
 COLMAP is research software and in rare cases it may exit ungracefully if some
 constraints are not fulfilled. In this case, the program prints a traceback to
@@ -113,20 +171,21 @@ single, self-contained SQLite database file (see :doc:`database`).
 
 The first step is to start the graphical user interface of COLMAP by running the
 pre-built binaries (Windows: `COLMAP.bat`, Mac: `COLMAP.app`) or by executing
-``./src/exe/colmap``. Next, create a new project by choosing ``File > New
-project``. In this dialog, you must select where to store the database and the
-folder that contains the input images. For convenience, you can save the entire
-project settings to a configuration file by choosing ``File > Save project``.
-The project configuration stores the absolute path information of the database
-and image folder in addition to any other parameter settings. If you decide to
-move the database or image folder, you must change the paths accordingly by
-creating a new project. Alternatively, the resulting `.ini` configuration file
-can be directly modified in a text editor of your choice. To reopen an existing
-project, you can simply open the configuration file by choosing ``File > Open
-project`` and all parameter settings should be recovered. Note that all COLMAP
-executables can be started from the command-line by either specifying individual
-settings as command-line arguments or by providing the path to the project
-configuration file (see :ref:`Interface <interface>`).
+``./src/exe/colmap gui`` from the CMake build folder. Next, create a new project
+by choosing ``File > New project``. In this dialog, you must select where to
+store the database and the folder that contains the input images. For
+convenience, you can save the entire project settings to a configuration file by
+choosing ``File > Save project``. The project configuration stores the absolute
+path information of the database and image folder in addition to any other
+parameter settings. If you decide to move the database or image folder, you must
+change the paths accordingly by creating a new project. Alternatively, the
+resulting `.ini` configuration file can be directly modified in a text editor of
+your choice. To reopen an existing project, you can simply open the
+configuration file by choosing ``File > Open project`` and all parameter
+settings should be recovered. Note that all COLMAP executables can be started
+from the command-line by either specifying individual settings as command-line
+arguments or by providing the path to the project configuration file (see
+:ref:`Interface <interface>`).
 
 An example folder structure could look like this::
 
@@ -183,11 +242,20 @@ import existing features, every image must have a text file next to it (e.g.,
 
 where `X, Y, SCALE, ORIENTATION` are floating point numbers and `D_1...D_128`
 values in the range `0...255`. The file should have `NUM_FEATURES` lines with
-one line per feature. Note that by convention the upper left corner of an image
-has coordinate `(0, 0)` and the center of the upper left most pixel has
-coordinate `(0.5, 0.5)`. If you must  import features for large image
-collections, it is much more efficient to directly access the database with your
-favorite scripting language (see :ref:`Database Format <database-format>`).
+one line per feature. For example, if an image has 4 features, then the text
+file should look something like this::
+
+    4 128
+    1.2 2.3 0.1 0.3 1 2 3 4 ... 21
+    2.2 3.3 1.1 0.3 3 2 3 2 ... 32
+    0.2 1.3 1.1 0.3 3 2 3 2 ... 2
+    1.2 2.3 1.1 0.3 3 2 3 2 ... 3
+
+Note that by convention the upper left corner of an image has coordinate `(0,
+0)` and the center of the upper left most pixel has coordinate `(0.5, 0.5)`. If
+you must  import features for large image collections, it is much more efficient
+to directly access the database with your favorite scripting language (see
+:ref:`Database Format <database-format>`).
 
 If you are done setting all options, choose ``Extract`` and wait for the
 extraction to finish or cancel. If you cancel during the extraction process, the
@@ -215,10 +283,7 @@ matching modes, that are intended for different input scenarios:
   relatively low (up to several hundreds), this matching mode should be fast
   enough and leads to the best reconstruction results. Here, every image is
   matched against every other image, while the block size determines how many
-  images are loaded from disk into memory at the same time. The preemptive
-  option filters image pairs that are not likely to match [wu13]_.
-  Typically though, vocabulary tree matching yields much better results than
-  preemptive matching [schoenberger15]_.
+  images are loaded from disk into memory at the same time.
 
 - **Sequential Matching**: This mode is useful if the images are acquired in
   sequential order, e.g., by a video camera. In this case, consecutive frames
@@ -228,22 +293,27 @@ matching modes, that are intended for different input scenarios:
   vocabulary tree, where every N-th image (`loop_detection_period`) is matched
   against its visually most similar images (`loop_detection_num_images`). Note
   that image file names must be ordered sequentially (e.g., `image0001.jpg`,
-  `image0002.jpg`, etc.). You can verify the correct order in the database
-  management tool (see :ref:`Database Format <database-format>`). Note that
-  loop detection requires a pre-trained vocabulary tree, that can be downloaded
-  from http://people.inf.ethz.ch/jschoenb/colmap/.
+  `image0002.jpg`, etc.). The order in the database is not relevant, since the
+  images are explicitly ordered according to their file names. Note that loop
+  detection requires a pre-trained vocabulary tree, that can be downloaded
+  from https://demuc.de/colmap/.
 
-- **Vocabulary Tree Matching**: In this matching mode, every image is matched
-  against its visual nearest neighbors using a vocabulary tree. This is the
-  recommended matching mode for large image collections (several thousands).
-  This requires a pre-trained vocabulary tree, that can be downloaded from
-  http://people.inf.ethz.ch/jschoenb/colmap/.
+- **Vocabulary Tree Matching**: In this matching mode [schoenberger16vote]_,
+  every image is matched against its visual nearest neighbors using a vocabulary
+  tree with spatial re-ranking. This is the recommended matching mode for large
+  image collections (several thousands). This requires a pre-trained vocabulary
+  tree, that can be downloaded from https://demuc.de/colmap/.
 
 - **Spatial Matching**: This matching mode matches every image against its
   spatial nearest neighbors. Spatial locations can be manually set in the
   database management. By default, COLMAP also extracts GPS information from
   EXIF and uses it for spatial nearest neighbor search. If accurate prior
   location information is available, this is the recommended matching mode.
+
+- **Transitive Matching**: This matching mode uses the transitive relations of
+  already existing feature matches to produce a more complete matching graph.
+  If an image A matches to an image B and B matches to C, then this matcher
+  attempts to match A to C directly.
 
 - **Custom Matching**: This mode allows to specify individual image pairs for
   matching or to import individual feature matches. To specify image pairs, you
@@ -315,9 +385,9 @@ from the drop-down menu in the toolbar. If the different models have common
 registered images, you can use the ``model_converter`` executable to merge them
 into a single reconstruction (see :ref:`FAQ <faq-merge-models>` for details). If
 all your images use the `SIMPLE_RADIAL` camera model (default) without shared
-intrinsics, you can use PBA [wu11]_ for fast bundle adjustment, which can be
-activated in the reconstruction options under the bundle adjustment section
-(`use_pba=true`).
+intrinsics, you can use PBA [wu11]_ instead of Ceres Solver [ceres]_ for fast
+bundle adjustment, which can be activated in the reconstruction options under
+the bundle adjustment section (`use_pba=true`).
 
 Ideally, the reconstruction works fine and all images are registered. If this is
 not the case, it is recommended to:
@@ -337,17 +407,20 @@ Importing and Exporting
 COLMAP provides several export options for further processing. For full
 flexibility, it is recommended to export the reconstruction in COLMAP's data
 format by choosing ``File > Export`` to export the currently viewed model or
-``File > Export all models`` to export all reconstructed models. The model is
-exported in the selected folder using separate text files for the reconstructed
-cameras, images, and points. When exporting in COLMAP's data format, you can re-
-import the reconstruction for later visualization, image undistortion, or to
-continue an existing reconstruction from where it left off (e.g., after
-importing and matching new images). To import a model, choose ``File > Import``
-and select the export folder path. Alternatively, you can also export the model
-in various other formats, such as Bundler, VisualSfM [#f1]_, PLY, or VRML by
-choosing ``File > Export as...``. COLMAP can visualize plain PLY point cloud
-files with RGB information by choosing ``File > Import From...``.
+``File > Export all`` to export all reconstructed models. The model is exported
+in the selected folder using separate text files for the reconstructed cameras,
+images, and points. When exporting in COLMAP's data format, you can re- import
+the reconstruction for later visualization, image undistortion, or to continue
+an existing reconstruction from where it left off (e.g., after importing and
+matching new images). To import a model, choose ``File > Import`` and select the
+export folder path. Alternatively, you can also export the model in various
+other formats, such as Bundler, VisualSfM [#f1]_, PLY, or VRML by choosing
+``File > Export as...``. COLMAP can visualize plain PLY point cloud files with
+RGB information by choosing ``File > Import From...``. Further information about
+the format of the exported models can be found :ref:`here <output-format>`.
 
+
+.. _dense-reconstruction:
 
 Dense Reconstruction
 --------------------
@@ -357,14 +430,14 @@ of the input images, MVS can now recover denser scene geometry. COLMAP has an
 integrated dense reconstruction pipeline to produce depth and normal maps for
 all registered images, to fuse the depth and normal maps into a dense point
 cloud with normal information, and to finally estimate a dense surface from the
-fused point cloud using Poisson reconstruction [kazhdan2013]_.
+fused point cloud using Poisson [kazhdan2013]_ or Delaunay reconstruction.
 
 To get started, import your sparse 3D model into COLMAP (or select the
 reconstructed model after finishing the previous sparse reconstruction steps).
 Then, choose ``Reconstruction > Multi-view stereo`` and select an empty or
 existing workspace folder, which is used for the output and of all dense
 reconstruction results. The first step is to ``undistort`` the images, second to
-compute the depth and normal maps using ``Stereo``, third to ``fuse`` the depth
+compute the depth and normal maps using ``stereo``, third to ``fuse`` the depth
 and normals maps to a point cloud, followed by a final, optional point cloud
 ``meshing`` step. During the stereo reconstruction process, the display might
 freeze due to heavy compute load and, if your GPU does not have enough memory,
@@ -375,18 +448,13 @@ of the point cloud cannot be directly visualized in COLMAP, but e.g. in Meshlab
 by enabling ``Render > Show Normal/Curvature``. Similarly, the reconstructed
 dense surface mesh model must be visualized with external software.
 
-By default, COLMAP only computes photometrically consistent depth and normal
-maps as a trade-off between reconstruction quality and speed. For highest
-reconstruction quality, you can compute both photometrically and geometrically
-consistent depth and normal maps: first, perform stereo processing and
-disable the ``filter`` option. After processing all images (before fusion and
-meshing), you must re-run stereo processing and enable both the ``filter`` and
-``geom_consistency`` options. Finally, perform the fusion and meshing steps.
-
-In addition to the internal dense reconstruction functionality, COLMAP exports
-to several other dense reconstruction libraries, such as CMVS/PMVS [furukawa10]_
-or CMP-MVS [jancosek11]_. Please choose ``Extras > Undistort images`` and select
-the appropriate format. To run PMVS2, execute the following commands::
+Note that COLMAP requires a CUDA-enabled GPU, so in addition to the internal
+dense reconstruction functionality, COLMAP exports to several other dense
+reconstruction libraries, such as CMVS/PMVS [furukawa10]_ or CMP-MVS
+[jancosek11]_. Please choose ``Extras > Undistort images`` and select the
+appropriate format. The output folders contain the reconstruction and the
+undistorted images. In addition, the folders contain sample shell scripts to
+perform the dense reconstruction. To run PMVS2, execute the following commands::
 
     ./path/to/pmvs2 /path/to/undistortion/folder/pmvs/ option-all
 
@@ -395,14 +463,10 @@ dialog. Make sure not to forget the trailing slash in
 `/path/to/undistortion/folder/pmvs/` in the above command-line arguments.
 
 For large datasets, you probably want to first run CMVS to cluster the scene
-into more manageable parts and then run PMVS2::
-
-    cd ./path/to/cmvs-pmvs-binaries
-    ./cmvs /path/to/undistortion/folder/pmvs/
-    ./genOption /path/to/undistortion/folder/pmvs/
-    sh /path/to/undistortion/folder/pmvs/pmvs.sh
-
-There is a number of external software packages that support COLMAP's output:
+into more manageable parts and then run COLMAP or PMVS2. Please, refer to the
+sample shell scripts in the undistortion output folder on how to run CMVS in
+combination with COLMAP or PMVS2. Moreover, there are a number of external
+libraries that support COLMAP's output:
 
 - `CMVS/PMVS <http://www.di.ens.fr/pmvs/>`_ [furukawa10]_
 - `CMP-MVS <http://ptak.felk.cvut.cz/sfmservice/websfm.pl>`_ [jancosek11]_
@@ -418,9 +482,9 @@ You can review and manage the imported cameras, images, and feature matches in
 the database management tool. Choose ``Processing > Manage database``. In the
 opening dialog, you can see the list of imported images and cameras. You can
 view the features and matches for each image by clicking ``Show image`` and
-``Show matches``. Individual entries in the database tables can be modified by
-double clicking specific cells. Note that any changes to the database are only
-effective after clicking ``Save``.
+``Overlapping images``. Individual entries in the database tables can be
+modified by double clicking specific cells. Note that any changes to the
+database are only effective after clicking ``Save``.
 
 To share intrinsic camera parameters between arbitrary groups of images, select
 a single or multiple images, choose ``Set camera`` and set the `camera_id`,
@@ -446,19 +510,21 @@ Graphical and Command-line Interface
 ------------------------------------
 
 Most of COLMAP's features are accessible from both the graphical and the
-command-line interface. All binaries accept a ``./bin -h`` (help) argument to
-list the available options. You can provide the options directly as command-line
-arguments or you can provide a `.ini` project configuration file containing the
-options as the ``./bin --project_path path/to/project.ini`` argument. To start
-the GUI application, please execute ``./src/exe/colmap`` or directly specify a
-project configuration as ``./src/exe/colmap --project_path path/to/project.ini``
-to avoid tedious selection in the GUI. The :ref:`Graphical User Interface <gui>`
-and :ref:`Command-line Interface <cli>` sections provide more details about the
-available controls.
+command-line interface, which are both embedded in the same executable. You can
+provide the options directly as command-line arguments or you can provide a
+`.ini` project configuration file containing the options using the
+``--project_path path/to/project.ini`` argument. To start the GUI application,
+please execute ``colmap gui`` or directly specify a project configuration as
+``colmap gui --project_path path/to/project.ini`` to avoid tedious selection in
+the GUI. To list the different commands available from the command-line, execute
+``colmap help``. For example, to run feature extraction from the command-line,
+you must execute ``colmap feature_extractor``. The :ref:`graphical user
+interface <gui>` and :ref:`command-line Interface <cli>` sections provide more
+details about the available commands.
 
 
 .. rubric:: Footnotes
 
-.. [#f1] VisualSfM's projection model applies the distortion to the measurements
-    and COLMAP to the projection, hence the exported NVM file is not fully
-    compatible with VisualSfM.
+.. [#f1] VisualSfM's [wu13]_ projection model applies the distortion to the
+    measurements and COLMAP to the projection, hence the exported NVM file is
+    not fully compatible with VisualSfM.

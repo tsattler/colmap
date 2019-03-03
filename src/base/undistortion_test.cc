@@ -1,23 +1,38 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
-#define BOOST_TEST_MAIN
-#define BOOST_TEST_MODULE "base/undistortion"
-#include <boost/test/unit_test.hpp>
+#define TEST_NAME "base/undistortion"
+#include "util/testing.h"
 
+#include "base/pose.h"
 #include "base/undistortion.h"
 
 using namespace colmap;
@@ -69,6 +84,20 @@ BOOST_AUTO_TEST_CASE(TestUndistortCamera) {
   BOOST_CHECK_EQUAL(undistorted_camera.FocalLengthY(), 100);
   BOOST_CHECK_EQUAL(undistorted_camera.Width(), 75);
   BOOST_CHECK_EQUAL(undistorted_camera.Height(), 75);
+
+  options.max_scale = 1.0;
+  options.roi_min_x = 0.1;
+  options.roi_min_y = 0.2;
+  options.roi_max_x = 0.9;
+  options.roi_max_y = 0.8;
+  undistorted_camera = UndistortCamera(options, distorted_camera);
+  BOOST_CHECK_EQUAL(undistorted_camera.ModelName(), "PINHOLE");
+  BOOST_CHECK_EQUAL(undistorted_camera.FocalLengthX(), 100);
+  BOOST_CHECK_EQUAL(undistorted_camera.FocalLengthY(), 100);
+  BOOST_CHECK_EQUAL(undistorted_camera.Width(), 80);
+  BOOST_CHECK_EQUAL(undistorted_camera.Height(), 60);
+  BOOST_CHECK_EQUAL(undistorted_camera.PrincipalPointX(), 40);
+  BOOST_CHECK_EQUAL(undistorted_camera.PrincipalPointY(), 30);
 }
 
 BOOST_AUTO_TEST_CASE(TestUndistortCameraBlankPixels) {
@@ -81,7 +110,7 @@ BOOST_AUTO_TEST_CASE(TestUndistortCameraBlankPixels) {
 
   Bitmap distorted_image;
   distorted_image.Allocate(100, 100, false);
-  distorted_image.Fill(BitmapColor<uint8_t>(255, 255, 255));
+  distorted_image.Fill(BitmapColor<uint8_t>(255));
 
   Bitmap undistorted_image;
   Camera undistorted_camera;
@@ -102,7 +131,7 @@ BOOST_AUTO_TEST_CASE(TestUndistortCameraBlankPixels) {
     for (int x = 0; x < undistorted_image.Width(); ++x) {
       BitmapColor<uint8_t> color;
       BOOST_CHECK(undistorted_image.GetPixel(x, y, &color));
-      if (color == BitmapColor<uint8_t>(0, 0, 0)) {
+      if (color == BitmapColor<uint8_t>(0)) {
         num_blank_pixels += 1;
       }
     }
@@ -121,7 +150,7 @@ BOOST_AUTO_TEST_CASE(TestUndistortCameraNoBlankPixels) {
 
   Bitmap distorted_image;
   distorted_image.Allocate(100, 100, false);
-  distorted_image.Fill(BitmapColor<uint8_t>(255, 255, 255));
+  distorted_image.Fill(BitmapColor<uint8_t>(255));
 
   Bitmap undistorted_image;
   Camera undistorted_camera;
@@ -182,4 +211,39 @@ BOOST_AUTO_TEST_CASE(TestUndistortReconstruction) {
       BOOST_CHECK_NE(point2D.XY(), Eigen::Vector2d::Ones());
     }
   }
+}
+
+BOOST_AUTO_TEST_CASE(TestRectifyStereoCameras) {
+  Camera camera1;
+  camera1.SetCameraId(1);
+  camera1.InitializeWithName("PINHOLE", 1, 1, 1);
+
+  Camera camera2;
+  camera2.SetCameraId(1);
+  camera2.InitializeWithName("PINHOLE", 1, 1, 1);
+
+  const Eigen::Vector4d qvec =
+      RotationMatrixToQuaternion(EulerAnglesToRotationMatrix(0.1, 0.2, 0.3));
+  const Eigen::Vector3d tvec(0.1, 0.2, 0.3);
+
+  Camera rectified_camera1;
+  Camera rectified_camera2;
+  Eigen::Matrix3d H1;
+  Eigen::Matrix3d H2;
+  Eigen::Matrix4d Q;
+  RectifyStereoCameras(camera1, camera2, qvec, tvec, &H1, &H2, &Q);
+
+  Eigen::Matrix3d H1_ref;
+  H1_ref << -0.202759, -0.815848, -0.897034, 0.416329, 0.733069, -0.199657,
+      0.910839, -0.175408, 0.942638;
+  BOOST_CHECK(H1.isApprox(H1_ref.transpose(), 1e-5));
+
+  Eigen::Matrix3d H2_ref;
+  H2_ref << -0.082173, -1.01288, -0.698868, 0.301854, 0.472844, -0.465336,
+      0.963533, 0.292411, 1.12528;
+  BOOST_CHECK(H2.isApprox(H2_ref.transpose(), 1e-5));
+
+  Eigen::Matrix4d Q_ref;
+  Q_ref << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -2.67261, -0.5, -0.5, 1, 0;
+  BOOST_CHECK(Q.isApprox(Q_ref, 1e-5));
 }

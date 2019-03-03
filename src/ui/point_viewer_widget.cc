@@ -1,34 +1,46 @@
-// COLMAP - Structure-from-Motion and Multi-View Stereo.
-// Copyright (C) 2016  Johannes L. Schoenberger <jsch at inf.ethz.ch>
+// Copyright (c) 2018, ETH Zurich and UNC Chapel Hill.
+// All rights reserved.
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+//     * Neither the name of ETH Zurich and UNC Chapel Hill nor the names of
+//       its contributors may be used to endorse or promote products derived
+//       from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
 
 #include "ui/point_viewer_widget.h"
 
-#include <iostream>
-
-#include "ui/opengl_window.h"
-#include "util/bitmap.h"
+#include "ui/model_viewer_widget.h"
 #include "util/misc.h"
 
 namespace colmap {
 
 PointViewerWidget::PointViewerWidget(QWidget* parent,
-                                     OpenGLWindow* opengl_window,
+                                     ModelViewerWidget* model_viewer_widget,
                                      OptionManager* options)
     : QWidget(parent),
-      opengl_window_(opengl_window),
+      model_viewer_widget_(model_viewer_widget),
       options_(options),
       point3D_id_(kInvalidPoint3DId),
       zoom_(250.0 / 1024.0) {
@@ -41,6 +53,33 @@ PointViewerWidget::PointViewerWidget(QWidget* parent,
 
   QGridLayout* grid = new QGridLayout(this);
   grid->setContentsMargins(5, 5, 5, 5);
+
+  info_table_ = new QTableWidget(this);
+  info_table_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
+  info_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  info_table_->setSelectionMode(QAbstractItemView::SingleSelection);
+  info_table_->setShowGrid(true);
+  info_table_->horizontalHeader()->setStretchLastSection(true);
+  info_table_->horizontalHeader()->setVisible(false);
+  info_table_->verticalHeader()->setVisible(false);
+  info_table_->verticalHeader()->setDefaultSectionSize(18);
+
+  info_table_->setColumnCount(2);
+  info_table_->setRowCount(3);
+
+  info_table_->setItem(0, 0, new QTableWidgetItem("position"));
+  xyz_item_ = new QTableWidgetItem();
+  info_table_->setItem(0, 1, xyz_item_);
+
+  info_table_->setItem(1, 0, new QTableWidgetItem("color"));
+  rgb_item_ = new QTableWidgetItem();
+  info_table_->setItem(1, 1, rgb_item_);
+
+  info_table_->setItem(2, 0, new QTableWidgetItem("error"));
+  error_item_ = new QTableWidgetItem();
+  info_table_->setItem(2, 1, error_item_);
+
+  grid->addWidget(info_table_, 0, 0);
 
   location_table_ = new QTableWidget(this);
   location_table_->setColumnCount(3);
@@ -58,7 +97,7 @@ PointViewerWidget::PointViewerWidget(QWidget* parent,
   location_table_->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
   location_table_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
-  grid->addWidget(location_table_, 0, 0);
+  grid->addWidget(location_table_, 1, 0);
 
   QHBoxLayout* button_layout = new QHBoxLayout();
 
@@ -81,7 +120,7 @@ PointViewerWidget::PointViewerWidget(QWidget* parent,
   connect(delete_button_, &QPushButton::released, this,
           &PointViewerWidget::Delete);
 
-  grid->addLayout(button_layout, 1, 0, Qt::AlignRight);
+  grid->addLayout(button_layout, 2, 0, Qt::AlignRight);
 }
 
 void PointViewerWidget::Show(const point3D_t point3D_id) {
@@ -89,7 +128,7 @@ void PointViewerWidget::Show(const point3D_t point3D_id) {
   image_ids_.clear();
   reproj_errors_.clear();
 
-  if (opengl_window_->points3D.count(point3D_id) == 0) {
+  if (model_viewer_widget_->points3D.count(point3D_id) == 0) {
     point3D_id_ = kInvalidPoint3DId;
     ClearLocations();
     return;
@@ -102,20 +141,28 @@ void PointViewerWidget::Show(const point3D_t point3D_id) {
 
   setWindowTitle(QString::fromStdString("Point " + std::to_string(point3D_id)));
 
-  const auto& point3D = opengl_window_->points3D[point3D_id];
+  const auto& point3D = model_viewer_widget_->points3D[point3D_id];
+
+  xyz_item_->setText(QString::number(point3D.X()) + ", " +
+                     QString::number(point3D.Y()) + ", " +
+                     QString::number(point3D.Z()));
+  rgb_item_->setText(QString::number(point3D.Color(0)) + ", " +
+                     QString::number(point3D.Color(1)) + ", " +
+                     QString::number(point3D.Color(2)));
+  error_item_->setText(QString::number(point3D.Error()));
+
+  ResizeInfoTable();
 
   // Paint features for each track element.
   for (const auto& track_el : point3D.Track().Elements()) {
-    const Image& image = opengl_window_->images[track_el.image_id];
-    const Camera& camera = opengl_window_->cameras[image.CameraId()];
+    const Image& image = model_viewer_widget_->images[track_el.image_id];
+    const Camera& camera = model_viewer_widget_->cameras[image.CameraId()];
     const Point2D& point2D = image.Point2D(track_el.point2D_idx);
 
-    const Eigen::Matrix3x4d proj_matrix = image.ProjectionMatrix();
-    const double error = CalculateReprojectionError(point2D.XY(), point3D.XYZ(),
-                                                    proj_matrix, camera);
+    const double reproj_error = std::sqrt(CalculateSquaredReprojectionError(
+        point2D.XY(), point3D.XYZ(), image.Qvec(), image.Tvec(), camera));
 
-    const std::string path =
-        JoinPaths(*options_->image_path, image.Name());
+    const std::string path = JoinPaths(*options_->image_path, image.Name());
 
     Bitmap bitmap;
     if (!bitmap.Read(path, true)) {
@@ -141,7 +188,7 @@ void PointViewerWidget::Show(const point3D_t point3D_id) {
 
     location_pixmaps_.push_back(pixmap);
     image_ids_.push_back(track_el.image_id);
-    reproj_errors_.push_back(error);
+    reproj_errors_.push_back(reproj_error);
   }
 
   UpdateImages();
@@ -153,6 +200,17 @@ void PointViewerWidget::closeEvent(QCloseEvent* event) {
   image_ids_.clear();
   reproj_errors_.clear();
   ClearLocations();
+}
+
+void PointViewerWidget::ResizeInfoTable() {
+  // Set fixed table dimensions.
+  info_table_->resizeColumnsToContents();
+  int height =
+      info_table_->horizontalHeader()->height() + 2 * info_table_->frameWidth();
+  for (int i = 0; i < info_table_->rowCount(); i++) {
+    height += info_table_->rowHeight(i);
+  }
+  info_table_->setFixedHeight(height);
 }
 
 void PointViewerWidget::ClearLocations() {
@@ -205,10 +263,10 @@ void PointViewerWidget::Delete() {
       this, "", tr("Do you really want to delete this point?"),
       QMessageBox::Yes | QMessageBox::No);
   if (reply == QMessageBox::Yes) {
-    if (opengl_window_->reconstruction->ExistsPoint3D(point3D_id_)) {
-      opengl_window_->reconstruction->DeletePoint3D(point3D_id_);
+    if (model_viewer_widget_->reconstruction->ExistsPoint3D(point3D_id_)) {
+      model_viewer_widget_->reconstruction->DeletePoint3D(point3D_id_);
     }
-    opengl_window_->Update();
+    model_viewer_widget_->ReloadReconstruction();
   }
 }
 
