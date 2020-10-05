@@ -27,7 +27,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
+// Author: Johannes L. Schoenberger (jsch-at-demuc-dot-de)
 
 #include "feature/matching.h"
 
@@ -240,6 +240,16 @@ void FeatureMatcherCache::Setup() {
       cache_size_, [this](const image_t image_id) {
         return database_->ReadDescriptors(image_id);
       }));
+
+  keypoints_exists_cache_.reset(new LRUCache<image_t, bool>(
+      images.size(), [this](const image_t image_id) {
+        return database_->ExistsKeypoints(image_id);
+      }));
+
+  descriptors_exists_cache_.reset(new LRUCache<image_t, bool>(
+      images.size(), [this](const image_t image_id) {
+        return database_->ExistsDescriptors(image_id);
+      }));
 }
 
 const Camera& FeatureMatcherCache::GetCamera(const camera_t camera_id) const {
@@ -275,6 +285,16 @@ std::vector<image_t> FeatureMatcherCache::GetImageIds() const {
     image_ids.push_back(image.first);
   }
   return image_ids;
+}
+
+bool FeatureMatcherCache::ExistsKeypoints(const image_t image_id) {
+  std::unique_lock<std::mutex> lock(database_mutex_);
+  return keypoints_exists_cache_->Get(image_id);
+}
+
+bool FeatureMatcherCache::ExistsDescriptors(const image_t image_id) {
+  std::unique_lock<std::mutex> lock(database_mutex_);
+  return descriptors_exists_cache_->Get(image_id);
 }
 
 bool FeatureMatcherCache::ExistsMatches(const image_t image_id1,
@@ -345,6 +365,12 @@ void SiftCPUFeatureMatcher::Run() {
     if (input_job.IsValid()) {
       auto data = input_job.Data();
 
+      if (!cache_->ExistsDescriptors(data.image_id1) ||
+          !cache_->ExistsDescriptors(data.image_id2)) {
+        CHECK(output_queue_->Push(data));
+        continue;
+      }
+
       const FeatureDescriptors descriptors1 =
           cache_->GetDescriptors(data.image_id1);
       const FeatureDescriptors descriptors2 =
@@ -397,6 +423,12 @@ void SiftGPUFeatureMatcher::Run() {
     if (input_job.IsValid()) {
       auto data = input_job.Data();
 
+      if (!cache_->ExistsDescriptors(data.image_id1) ||
+          !cache_->ExistsDescriptors(data.image_id2)) {
+        CHECK(output_queue_->Push(data));
+        continue;
+      }
+
       const FeatureDescriptors* descriptors1_ptr;
       GetDescriptorData(0, data.image_id1, &descriptors1_ptr);
       const FeatureDescriptors* descriptors2_ptr;
@@ -446,6 +478,14 @@ void GuidedSiftCPUFeatureMatcher::Run() {
 
       if (data.two_view_geometry.inlier_matches.size() <
           static_cast<size_t>(options_.min_num_inliers)) {
+        CHECK(output_queue_->Push(data));
+        continue;
+      }
+
+      if (!cache_->ExistsKeypoints(data.image_id1) ||
+          !cache_->ExistsKeypoints(data.image_id2) ||
+          !cache_->ExistsDescriptors(data.image_id1) ||
+          !cache_->ExistsDescriptors(data.image_id2)) {
         CHECK(output_queue_->Push(data));
         continue;
       }
@@ -506,6 +546,14 @@ void GuidedSiftGPUFeatureMatcher::Run() {
 
       if (data.two_view_geometry.inlier_matches.size() <
           static_cast<size_t>(options_.min_num_inliers)) {
+        CHECK(output_queue_->Push(data));
+        continue;
+      }
+
+      if (!cache_->ExistsKeypoints(data.image_id1) ||
+          !cache_->ExistsKeypoints(data.image_id2) ||
+          !cache_->ExistsDescriptors(data.image_id1) ||
+          !cache_->ExistsDescriptors(data.image_id2)) {
         CHECK(output_queue_->Push(data));
         continue;
       }
@@ -753,8 +801,6 @@ void SiftFeatureMatcher::Match(
     return;
   }
 
-  DatabaseTransaction database_transaction(database_);
-
   //////////////////////////////////////////////////////////////////////////////
   // Match the image pairs
   //////////////////////////////////////////////////////////////////////////////
@@ -903,6 +949,7 @@ void ExhaustiveFeatureMatcher::Run() {
         }
       }
 
+      DatabaseTransaction database_transaction(&database_);
       matcher_.Match(image_pairs);
 
       PrintElapsedTime(timer);
@@ -1004,6 +1051,7 @@ void SequentialFeatureMatcher::RunSequentialMatching(
       }
     }
 
+    DatabaseTransaction database_transaction(&database_);
     matcher_.Match(image_pairs);
 
     PrintElapsedTime(timer);
@@ -1295,6 +1343,7 @@ void SpatialFeatureMatcher::Run() {
       image_pairs.emplace_back(image_id, nn_image_id);
     }
 
+    DatabaseTransaction database_transaction(&database_);
     matcher_.Match(image_pairs);
 
     PrintElapsedTime(timer);
@@ -1374,6 +1423,7 @@ void TransitiveFeatureMatcher::Run() {
                 num_batches += 1;
                 std::cout << StringPrintf("  Batch %d", num_batches)
                           << std::flush;
+                DatabaseTransaction database_transaction(&database_);
                 matcher_.Match(image_pairs);
                 image_pairs.clear();
                 PrintElapsedTime(timer);
@@ -1392,6 +1442,7 @@ void TransitiveFeatureMatcher::Run() {
 
     num_batches += 1;
     std::cout << StringPrintf("  Batch %d", num_batches) << std::flush;
+    DatabaseTransaction database_transaction(&database_);
     matcher_.Match(image_pairs);
     PrintElapsedTime(timer);
   }
@@ -1436,6 +1487,7 @@ void ImagePairsFeatureMatcher::Run() {
 
   std::string line;
   std::vector<std::pair<image_t, image_t>> image_pairs;
+  std::unordered_set<colmap::image_pair_t> image_pairs_set;
   while (std::getline(file, line)) {
     StringTrim(&line);
 
@@ -1464,8 +1516,14 @@ void ImagePairsFeatureMatcher::Run() {
       continue;
     }
 
-    image_pairs.emplace_back(image_name_to_image_id.at(image_name1),
-                             image_name_to_image_id.at(image_name2));
+    const image_t image_id1 = image_name_to_image_id.at(image_name1);
+    const image_t image_id2 = image_name_to_image_id.at(image_name2);
+    const image_pair_t image_pair =
+        Database::ImagePairToPairId(image_id1, image_id2);
+    const bool image_pair_exists = image_pairs_set.insert(image_pair).second;
+    if (image_pair_exists) {
+      image_pairs.emplace_back(image_id1, image_id2);
+    }
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1498,6 +1556,7 @@ void ImagePairsFeatureMatcher::Run() {
       block_image_pairs.push_back(image_pairs[j]);
     }
 
+    DatabaseTransaction database_transaction(&database_);
     matcher_.Match(block_image_pairs);
 
     PrintElapsedTime(timer);

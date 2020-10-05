@@ -27,7 +27,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
+// Author: Johannes L. Schoenberger (jsch-at-demuc-dot-de)
 
 #include "estimators/absolute_pose.h"
 
@@ -536,7 +536,7 @@ void EPNPEstimator::ComputePcs() {
 }
 
 void EPNPEstimator::SolveForSign() {
-  if (pcs_[0][2] < 0.0 || pcs_[0][2] > 0.0) {
+  if (pcs_[0][2] < 0.0) {
     for (int i = 0; i < 4; ++i) {
       ccs_[i] = -ccs_[i];
     }

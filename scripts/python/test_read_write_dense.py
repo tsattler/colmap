@@ -27,43 +27,34 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-# Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
+# Author: Johannes L. Schoenberger (jsch-at-demuc-dot-de)
 
 import numpy as np
-import pylab as plt
-
-
-def read_array(path):
-    with open(path, "rb") as fid:
-        width, height, channels = np.genfromtxt(fid, delimiter="&", max_rows=1,
-                                                usecols=(0, 1, 2), dtype=int)
-        fid.seek(0)
-        num_delimiter = 0
-        byte = fid.read(1)
-        while True:
-            if byte == b"&":
-                num_delimiter += 1
-                if num_delimiter >= 3:
-                    break
-            byte = fid.read(1)
-        array = np.fromfile(fid, np.float32)
-    array = array.reshape((width, height, channels), order="F")
-    return np.transpose(array, (1, 0, 2)).squeeze()
+from read_write_dense import read_array, write_array
 
 
 def main():
-    # Read depth and normal maps corresponding to the same image.
-    depth_map = read_array(
-        "path/to/dense/stereo/depth_maps/image1.jpg.photometric.bin")
-    normal_map = read_array(
-        "path/to/dense/stereo/normal_maps/image1.jpg.photometric.bin")
+    import sys
+    if len(sys.argv) != 3:
+        print("Usage: python test_read_write_dense.py "
+              "path/to/dense/input.bin path/to/dense/output.bin")
+        return
 
-    # Visualize the depth map.
-    min_depth, max_depth = np.percentile(depth_map, [5, 95])
-    depth_map[depth_map < min_depth] = min_depth
-    depth_map[depth_map > max_depth] = max_depth
-    plt.imshow(depth_map)
-    plt.show()
+    print("Checking consistency of reading and writing dense arrays "
+          + "(depth maps / normal maps) ...")
+
+    path_to_dense_input = sys.argv[1]
+    path_to_dense_output = sys.argv[2]
+
+    dense_input = read_array(path_to_dense_input)
+    print("Input shape: " + str(dense_input.shape))
+
+    write_array(dense_input, path_to_dense_output)
+    dense_output = read_array(path_to_dense_output)
+
+    np.testing.assert_array_equal(dense_input, dense_output)
+
+    print("... dense arrays are equal.")
 
 
 if __name__ == "__main__":

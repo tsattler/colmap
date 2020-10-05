@@ -27,14 +27,14 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-# Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
+# Author: Johannes L. Schoenberger (jsch-at-demuc-dot-de)
 
 cmake_minimum_required(VERSION 3.0)
 
 project(COLMAP)
 
-set(COLMAP_VERSION "3.6")
-set(COLMAP_VERSION_NUMBER "3600")
+set(COLMAP_VERSION "3.7")
+set(COLMAP_VERSION_NUMBER "3700")
 
 
 ################################################################################
@@ -90,7 +90,6 @@ find_package(Boost REQUIRED COMPONENTS
              program_options
              filesystem
              graph
-             regex
              system
              unit_test_framework)
 
@@ -100,11 +99,15 @@ find_package(FreeImage REQUIRED)
 
 find_package(Glog REQUIRED)
 
+set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 find_package(Glew REQUIRED)
 find_package(Git)
 
-find_package(CGAL QUIET)
+if(CGAL_ENABLED)
+    set(CGAL_DO_NOT_WARN_ABOUT_CMAKE_BUILD_TYPE TRUE)
+    find_package(CGAL QUIET)
+endif()
 
 set(CUDA_MIN_VERSION "7.0")
 if(CUDA_ENABLED)
@@ -121,6 +124,7 @@ if(Qt5_FOUND)
 endif()
 
 if(CGAL_FOUND)
+    list(APPEND CGAL_LIBRARY ${CGAL_LIBRARIES})
     message(STATUS "Found CGAL")
     message(STATUS "  Includes : ${CGAL_INCLUDE_DIRS}")
     message(STATUS "  Libraries : ${CGAL_LIBRARY}")
@@ -150,6 +154,10 @@ if(IS_MSVC)
 endif()
 
 if(IS_GNU)
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9)
+        message(FATAL_ERROR "GCC version 4.8 or older not supported")
+    endif()
+
     # Hide incorrect warnings for uninitialized Eigen variables under GCC.
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-maybe-uninitialized")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-maybe-uninitialized")
@@ -274,19 +282,21 @@ set(COLMAP_EXTERNAL_LIBRARIES
     ${CMAKE_DL_LIBS}
     ${Boost_FILESYSTEM_LIBRARY}
     ${Boost_PROGRAM_OPTIONS_LIBRARY}
-    ${Boost_REGEX_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     ${GLOG_LIBRARIES}
     ${FREEIMAGE_LIBRARIES}
     ${CERES_LIBRARIES}
-    ${OPENGL_gl_LIBRARY}
-    ${OPENGL_glu_LIBRARY}
+    ${OPENGL_LIBRARIES}
     ${Qt5Core_LIBRARIES}
     ${Qt5OpenGL_LIBRARIES}
     ${Qt5Widgets_LIBRARIES}
 )
 
-if(CGAL_ENABLED)
+if(OPENMP_FOUND)
+    list(APPEND COLMAP_EXTERNAL_LIBRARIES ${OpenMP_libomp_LIBRARY})
+endif()
+
+if(CGAL_FOUND)
     list(APPEND COLMAP_INCLUDE_DIRS ${CGAL_INCLUDE_DIRS} ${GMP_INCLUDE_DIR})
     list(APPEND COLMAP_EXTERNAL_LIBRARIES ${CGAL_LIBRARY} ${GMP_LIBRARIES})
     list(APPEND COLMAP_LINK_DIRS ${CGAL_LIBRARIES_DIR})
@@ -297,7 +307,6 @@ if(UNIX)
 endif()
 
 set(COLMAP_INTERNAL_LIBRARIES
-    colmap
     flann
     graclus
     lsd
@@ -306,15 +315,6 @@ set(COLMAP_INTERNAL_LIBRARIES
     sqlite3
     sift_gpu
     vlfeat
-)
-
-if(CUDA_ENABLED)
-    list(APPEND COLMAP_INTERNAL_LIBRARIES colmap_cuda colmap)
-endif()
-
-set(COLMAP_LIBRARIES
-    ${COLMAP_INTERNAL_LIBRARIES}
-    ${COLMAP_EXTERNAL_LIBRARIES}
 )
 
 include_directories(

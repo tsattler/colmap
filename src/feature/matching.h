@@ -27,7 +27,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
+// Author: Johannes L. Schoenberger (jsch-at-demuc-dot-de)
 
 #ifndef COLMAP_SRC_FEATURE_MATCHING_H_
 #define COLMAP_SRC_FEATURE_MATCHING_H_
@@ -147,7 +147,7 @@ struct TransitiveMatchingOptions {
 
 struct ImagePairsMatchingOptions {
   // Number of image pairs to match in one batch.
-  int block_size = 100;
+  int block_size = 1225;
 
   // Path to the file with the matches.
   std::string match_list_path = "";
@@ -190,6 +190,9 @@ class FeatureMatcherCache {
   FeatureMatches GetMatches(const image_t image_id1, const image_t image_id2);
   std::vector<image_t> GetImageIds() const;
 
+  bool ExistsKeypoints(const image_t image_id);
+  bool ExistsDescriptors(const image_t image_id);
+
   bool ExistsMatches(const image_t image_id1, const image_t image_id2);
   bool ExistsInlierMatches(const image_t image_id1, const image_t image_id2);
 
@@ -209,6 +212,8 @@ class FeatureMatcherCache {
   EIGEN_STL_UMAP(image_t, Image) images_cache_;
   std::unique_ptr<LRUCache<image_t, FeatureKeypoints>> keypoints_cache_;
   std::unique_ptr<LRUCache<image_t, FeatureDescriptors>> descriptors_cache_;
+  std::unique_ptr<LRUCache<image_t, bool>> keypoints_exists_cache_;
+  std::unique_ptr<LRUCache<image_t, bool>> descriptors_exists_cache_;
 };
 
 class FeatureMatcherThread : public Thread {

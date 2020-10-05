@@ -27,7 +27,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 //
-// Author: Johannes L. Schoenberger (jsch at inf.ethz.ch)
+// Author: Johannes L. Schoenberger (jsch-at-demuc-dot-de)
 
 #ifndef COLMAP_SRC_OPENGL_UTILS_H_
 #define COLMAP_SRC_OPENGL_UTILS_H_
@@ -53,7 +53,8 @@ namespace colmap {
 // in it. The context can then be made current in any other thread.
 class OpenGLContextManager : public QObject {
  public:
-  OpenGLContextManager();
+  OpenGLContextManager(int opengl_major_version = 2,
+                       int opengl_minor_version = 1);
 
   // Make the OpenGL context available by moving it from the thread where it was
   // created to the current thread and making it current.
