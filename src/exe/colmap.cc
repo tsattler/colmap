@@ -1102,9 +1102,6 @@ int RunIncrementalModelRefiner(int argc, char** argv) {
     BundleAdjuster bundle_adjuster(ba_options, ba_config);
     CHECK(bundle_adjuster.Solve(&reconstruction));
 
-    PrintHeading1("Retriangulation");
-    CompleteAndMergeTracks(mapper_options, &mapper);
-
     size_t num_changed_observations = 0;
     num_changed_observations += CompleteAndMergeTracks(mapper_options, &mapper);
     num_changed_observations += FilterPoints(mapper_options, &mapper);
